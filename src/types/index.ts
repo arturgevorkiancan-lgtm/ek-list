@@ -341,3 +341,32 @@ export interface ApplicationVerificationSave {
   applicationType: ApplicationType
   parsedApplication: ParsedApplicationData
 }
+
+export type DataConflictLevel = 'critical' | 'important' | 'info'
+
+export type DataConflictSource = 'egryl' | 'license' | 'egrn' | 'techplan'
+
+export interface DataConflict {
+  id: string
+  client_id: string | null
+  warehouse_id: string | null
+  field: string
+  source_a: DataConflictSource
+  value_a: string | null
+  source_b: DataConflictSource
+  value_b: string | null
+  priority_source: DataConflictSource | null
+  level: DataConflictLevel
+  resolved: boolean
+  resolved_at: string | null
+  resolution_comment: string | null
+  created_at: string
+}
+
+export interface SourcePriority {
+  id: string
+  client_id: string
+  field: string
+  priority_order: DataConflictSource[]
+  created_at: string
+}

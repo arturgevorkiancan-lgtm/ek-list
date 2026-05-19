@@ -236,6 +236,13 @@ export function detectConflicts(sources: DataSource[]): {
   return { conflicts, merged }
 }
 
+export {
+  detectAndSaveConflicts,
+  normalizeForConflictCompare,
+  valuesConflict,
+} from './conflictPersistence'
+export type { DetectConflictsParams, DetectConflictsResult } from './conflictPersistence'
+
 export function formatSourceBadge(sourceName: string | 'manual'): string {
   if (sourceName === 'manual') return '✏️ вручную'
   const short =

@@ -2,10 +2,12 @@ import type {
   Checklist,
   ChecklistItem,
   Client,
+  DataConflict,
   Document,
   License,
   LicenseAddress,
   RentalContract,
+  SourcePriority,
   Warehouse,
 } from '../types'
 
@@ -18,6 +20,8 @@ const KEYS = {
   checklists: 'ek_checklists',
   items: 'ek_checklist_items',
   documents: 'ek_documents',
+  dataConflicts: 'ek_data_conflicts',
+  sourcePriorities: 'ek_source_priorities',
 } as const
 
 function read<T>(key: string): T[] {
@@ -140,5 +144,32 @@ export const localStore = {
   },
   deleteDocument: (id: string) => {
     write(KEYS.documents, read<Document>(KEYS.documents).filter((d) => d.id !== id))
+  },
+
+  getDataConflicts: (clientId?: string) => {
+    const all = read<DataConflict>(KEYS.dataConflicts)
+    return clientId ? all.filter((c) => c.client_id === clientId) : all
+  },
+  saveDataConflict: (conflict: DataConflict) => {
+    const list = read<DataConflict>(KEYS.dataConflicts)
+    const idx = list.findIndex((c) => c.id === conflict.id)
+    if (idx >= 0) list[idx] = conflict
+    else list.push(conflict)
+    write(KEYS.dataConflicts, list)
+    return conflict
+  },
+
+  getSourcePriorities: (clientId: string) =>
+    read<SourcePriority>(KEYS.sourcePriorities).filter((p) => p.client_id === clientId),
+
+  saveSourcePriority: (row: SourcePriority) => {
+    const list = read<SourcePriority>(KEYS.sourcePriorities)
+    const idx = list.findIndex(
+      (p) => p.client_id === row.client_id && p.field === row.field,
+    )
+    if (idx >= 0) list[idx] = row
+    else list.push(row)
+    write(KEYS.sourcePriorities, list)
+    return row
   },
 }
