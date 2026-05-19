@@ -39,6 +39,7 @@ import {
   upsertLicense,
 } from './lib/api'
 import { uid } from './lib/localStore'
+import { navigateToClientsList } from './lib/clientNavigation'
 import { useToast } from './context/ToastContext'
 
 const queryClient = new QueryClient({
@@ -356,8 +357,8 @@ function ClientWorkspace() {
           <nav className="text-sm text-slate-600 min-w-0">
             <button
               type="button"
-              onClick={() => navigate('/')}
-              className="hover:text-brand-600 min-h-[44px] inline-flex items-center"
+              onClick={() => navigateToClientsList(navigate)}
+              className="cursor-pointer text-blue-600 hover:underline min-h-[44px] inline-flex items-center"
             >
               Все клиенты
             </button>

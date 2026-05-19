@@ -5,6 +5,7 @@ import { format, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { EditClientModal, type EditClientFormState } from '../components/EditClientModal'
+import { NewClientModal, type NewClientFormState } from '../components/NewClientModal'
 import { Header } from '../components/Header'
 import { NotificationBanners } from '../components/NotificationBanners'
 import {
@@ -22,12 +23,11 @@ import { useNotifications } from '../hooks/useNotifications'
 import { useToast } from '../context/ToastContext'
 import { OPERATION_LABELS } from '../data/checklistItems'
 import type { ClientWithMeta } from '../types'
+import { SKIP_LAST_CLIENT_KEY } from '../lib/navigation'
 import { uid } from '../lib/localStore'
 import { isSupabaseConfigured } from '../lib/supabase'
 
 const LAST_CLIENT_KEY = 'checklist_last_client'
-const SKIP_LAST_CLIENT_KEY = 'checklist_skip_last_client'
-
 seedDemoDataIfEmpty()
 
 function highlightMatch(text: string, query: string): ReactNode {
@@ -85,8 +85,8 @@ export function ClientsPage() {
   const { showToast } = useToast()
   const searchRef = useRef<HTMLInputElement>(null)
   const [search, setSearch] = useState('')
-  const [showNewForm, setShowNewForm] = useState(false)
-  const [newName, setNewName] = useState('')
+  const [newClientOpen, setNewClientOpen] = useState(false)
+  const [creatingClient, setCreatingClient] = useState(false)
   const [lastClientChecked, setLastClientChecked] = useState(false)
   const [confirmDeleteClientId, setConfirmDeleteClientId] = useState<string | null>(null)
   const [deletingClientId, setDeletingClientId] = useState<string | null>(null)
@@ -192,16 +192,27 @@ export function ClientsPage() {
     })
   }, [clientsWithMeta, search])
 
-  const handleCreateClient = async () => {
-    if (!newName.trim()) return
+  const handleCreateClient = async (form: NewClientFormState) => {
+    setCreatingClient(true)
     try {
-      const client = await upsertClient({ id: uid(), name: newName.trim() })
-      setNewName('')
-      setShowNewForm(false)
+      const client = await upsertClient({
+        id: uid(),
+        name: form.name.trim(),
+        inn: form.inn.trim() || null,
+        kpp: form.kpp.trim() || null,
+        ogrn: form.ogrn.trim() || null,
+        legal_address: form.legal_address.trim() || null,
+        phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
+      })
+      await qc.invalidateQueries({ queryKey: ['clients'] })
+      setNewClientOpen(false)
       showToast('Клиент создан')
       navigate(`/clients/${client.id}`)
     } catch {
       showToast('Ошибка создания клиента', 'error')
+    } finally {
+      setCreatingClient(false)
     }
   }
 
@@ -260,11 +271,11 @@ export function ClientsPage() {
           </div>
           <button
             type="button"
-            onClick={() => setShowNewForm(true)}
-            className="inline-flex items-center justify-center gap-2 min-h-[44px] rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-700"
+            onClick={() => setNewClientOpen(true)}
+            className="inline-flex items-center justify-center gap-2 min-h-[44px] rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-brand-700 cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            Новый клиент
+            + Добавить клиента
           </button>
         </div>
 
@@ -280,33 +291,6 @@ export function ClientsPage() {
             className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-4 text-sm min-h-[44px] focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
         </div>
-
-        {showNewForm && (
-          <div className="mb-6 rounded-lg border border-brand-200 bg-brand-50 p-4 flex flex-col sm:flex-row gap-3">
-            <input
-              autoFocus
-              placeholder="Название организации"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && void handleCreateClient()}
-              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm min-h-[44px]"
-            />
-            <button
-              type="button"
-              onClick={() => void handleCreateClient()}
-              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white min-h-[44px]"
-            >
-              Создать
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowNewForm(false)}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm min-h-[44px]"
-            >
-              Отмена
-            </button>
-          </div>
-        )}
 
         {isLoading && (
           <div className="space-y-4 animate-pulse">
@@ -326,7 +310,7 @@ export function ClientsPage() {
             title="Нет клиентов"
             subtitle="Добавьте первого клиента, чтобы начать работу"
             buttonLabel="Добавить клиента"
-            onButton={() => setShowNewForm(true)}
+            onButton={() => setNewClientOpen(true)}
           />
         )}
 
@@ -448,6 +432,13 @@ export function ClientsPage() {
           ))}
         </div>
       </main>
+
+      <NewClientModal
+        open={newClientOpen}
+        saving={creatingClient}
+        onClose={() => setNewClientOpen(false)}
+        onCreate={handleCreateClient}
+      />
 
       <EditClientModal
         open={!!editClient}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Bell, BellOff, ClipboardList, HelpCircle, Search, X } from 'lucide-react'
 import { isSupabaseConfigured } from '../lib/supabase'
@@ -15,6 +15,7 @@ import {
 import { fetchClients, fetchChecklists, fetchLicenses } from '../lib/api'
 import { getLicenseExpiryStatus } from '../lib/licenseUtils'
 import { getRecentClientIds } from '../hooks/useRecentClients'
+import { navigateToClientsList } from '../lib/navigation'
 import { ClientSwitcher } from './ClientSwitcher'
 import type { ClientWithMeta } from '../types'
 
@@ -28,8 +29,6 @@ const SHORTCUTS = [
   { keys: 'Ctrl+1 … Ctrl+4', desc: 'Переключение вкладок (в карточке клиента)' },
   { keys: 'Esc', desc: 'Назад / закрыть модальное окно' },
 ]
-
-const SKIP_LAST_CLIENT_KEY = 'checklist_skip_last_client'
 
 export function Header({ notificationCount = 0, breadcrumb }: HeaderProps) {
   const navigate = useNavigate()
@@ -131,12 +130,7 @@ export function Header({ notificationCount = 0, breadcrumb }: HeaderProps) {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        try {
-          sessionStorage.setItem(SKIP_LAST_CLIENT_KEY, '1')
-        } catch {
-          /* ignore */
-        }
-        navigate('/')
+        navigateToClientsList(navigate)
         window.setTimeout(() => {
           document.getElementById('client-search')?.focus()
         }, 100)
@@ -155,19 +149,24 @@ export function Header({ notificationCount = 0, breadcrumb }: HeaderProps) {
     <>
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur overflow-x-hidden">
         <div className="mx-auto flex max-w-6xl items-center gap-2 sm:gap-4 px-4 py-3">
-          <Link
-            to="/"
-            className="flex items-center gap-2 font-semibold text-brand-700 shrink-0 min-h-[44px]"
+          <button
+            type="button"
+            onClick={() => navigateToClientsList(navigate)}
+            className="flex items-center gap-2 font-semibold text-brand-700 shrink-0 min-h-[44px] cursor-pointer hover:opacity-70"
           >
             <ClipboardList className="h-6 w-6" />
             <span className="hidden sm:inline">ЧЕК-Лист</span>
-          </Link>
+          </button>
 
           {breadcrumb && (
             <div className="min-w-0 flex-1 text-sm text-slate-600 truncate hidden sm:block">
-              <Link to="/" className="hover:text-brand-600">
-                Клиенты
-              </Link>
+              <button
+                type="button"
+                onClick={() => navigateToClientsList(navigate)}
+                className="cursor-pointer text-blue-600 hover:underline"
+              >
+                Все клиенты
+              </button>
               <span className="mx-2 text-slate-300">/</span>
               <span className="font-medium text-slate-900">{breadcrumb}</span>
             </div>
