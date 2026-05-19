@@ -20,6 +20,11 @@ import {
   Warehouse as WarehouseIcon,
   X,
 } from 'lucide-react'
+import {
+  EGRUL_WAREHOUSE_ADDRESS_CLEANUP_SQL,
+  formatWarehouseAddressDisplay,
+  isEgrulLegalAddressBoilerplate,
+} from '../lib/egrulAddress'
 import { parseEGRNFile } from '../lib/egrnParser'
 import { parseRentalFile } from '../lib/rentalParser'
 import { parseTechPlanFile } from '../lib/techPlanParser'
@@ -476,6 +481,13 @@ export function WarehouseDocumentsSection({
   const [newName, setNewName] = useState('')
 
   useEffect(() => {
+    console.info(
+      '[WarehouseDocumentsSection] SQL для очистки юридических адресов в warehouses:\n',
+      EGRUL_WAREHOUSE_ADDRESS_CLEANUP_SQL,
+    )
+  }, [])
+
+  useEffect(() => {
     if (!modalOpen) return
     const onEsc = () => setModalOpen(false)
     window.addEventListener('checklist:escape', onEsc)
@@ -731,9 +743,14 @@ export function WarehouseDocumentsSection({
   const applyEgrnToWarehouse = async (warehouseId: string, egrn: ParsedEGRN) => {
     const w = warehouses.find((x) => x.id === warehouseId)
     if (!w) return
+    const egrnAddress = egrn.address?.trim()
+    const nextAddress =
+      egrnAddress && !isEgrulLegalAddressBoilerplate(egrnAddress)
+        ? egrnAddress
+        : w.address
     await upsertWarehouse({
       ...w,
-      address: egrn.address || w.address,
+      address: nextAddress,
       cadastral_number: egrn.cadastralNumber || w.cadastral_number,
       area_sqm: egrn.area ? Number(String(egrn.area).replace(',', '.')) : w.area_sqm,
     })
@@ -786,9 +803,13 @@ export function WarehouseDocumentsSection({
           await saveRentalFromParsed(clientId, result, undefined, warehouseId)
           const w = warehouses.find((x) => x.id === warehouseId)
           if (w && (result.address || result.areaSqm)) {
+            const rentalAddress = result.address?.trim()
             await upsertWarehouse({
               ...w,
-              address: result.address || w.address,
+              address:
+                rentalAddress && !isEgrulLegalAddressBoilerplate(rentalAddress)
+                  ? rentalAddress
+                  : w.address,
               area_sqm: result.areaSqm ?? w.area_sqm,
             })
           }
@@ -817,7 +838,11 @@ export function WarehouseDocumentsSection({
             floor: result.floor ?? w.floor,
             room_number: result.roomNumber ?? w.room_number,
             object_purpose: result.purpose ?? w.object_purpose,
-            address: result.address ?? w.address,
+            address: (() => {
+              const a = result.address?.trim()
+              if (a && !isEgrulLegalAddressBoilerplate(a)) return a
+              return w.address
+            })(),
           })
           if (result.cadastralNumber && !w.kpp) {
             const matchedKpp = findKppByCadastral(result.cadastralNumber, licenseAddresses)
@@ -875,7 +900,14 @@ export function WarehouseDocumentsSection({
           newSource: source,
         })
       }
-      await upsertWarehouse({ ...dataUpdateModal.warehouse, ...patch })
+      const safePatch = { ...patch }
+      if (
+        safePatch.address?.trim() &&
+        isEgrulLegalAddressBoilerplate(safePatch.address)
+      ) {
+        delete safePatch.address
+      }
+      await upsertWarehouse({ ...dataUpdateModal.warehouse, ...safePatch })
       setDataUpdateModal(null)
       showToast('Данные склада обновлены')
       void refetchWarehouses()
@@ -1096,7 +1128,13 @@ export function WarehouseDocumentsSection({
         <div className="space-y-4">
           {warehouses.map((w) => {
             const rental = rentalForWarehouse(w.id)
-            const displayAddress = w.address || rental?.address || '—'
+            const warehouseAddr = formatWarehouseAddressDisplay(w.address)
+            const rentalAddr = rental?.address?.trim()
+            const displayAddress = warehouseAddr.missing
+              ? rentalAddr && !isEgrulLegalAddressBoilerplate(rentalAddr)
+                ? rentalAddr
+                : warehouseAddr.text
+              : warehouseAddr.text
             const displayKpp = w.kpp || '—'
             const displayArea =
               w.area_sqm != null ? `${w.area_sqm} кв.м` : '—'
@@ -1203,12 +1241,12 @@ export function WarehouseDocumentsSection({
                               </span>
                             </div>
                             <p className="mt-1 pl-6 text-xs text-slate-600 flex flex-wrap items-center gap-x-1 gap-y-0.5">
-                              {displayAddress !== '—' ? (
+                              {warehouseAddr.missing ? (
+                                <span className="text-slate-400 italic">{displayAddress}</span>
+                              ) : (
                                 <CopyOnClick text={displayAddress} label="Адрес скопирован">
                                   {displayAddress}
                                 </CopyOnClick>
-                              ) : (
-                                <span>{displayAddress}</span>
                               )}
                               <span className="text-slate-400">·</span>
                               <span>{displayArea}</span>

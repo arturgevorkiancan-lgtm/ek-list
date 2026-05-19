@@ -1,4 +1,5 @@
 import type { ParsedEGRYLData } from '../types'
+import { sanitizeEgrulLegalAddress } from './egrulAddress'
 
 export interface ClientRequisitesSnapshot {
   name: string
@@ -19,7 +20,7 @@ export function parsedEgrylToRequisites(parsed: ParsedEGRYLData['client']) {
     inn: parsed.inn.trim() || null,
     kpp: parsed.kpp.trim() || null,
     ogrn: parsed.ogrn.trim() || null,
-    legal_address: parsed.legalAddress.trim() || null,
+    legal_address: sanitizeEgrulLegalAddress(parsed.legalAddress) || null,
   }
 }
 

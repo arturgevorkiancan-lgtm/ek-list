@@ -54,7 +54,7 @@ export function OrganizationEgrylBlock({
       })
       await onConflictAfterUpload?.({
         clientId,
-        newData: egrylParsedToFields(result),
+        newData: egrylParsedToFields(result, { includeLegalAddress: true }),
         newSource: 'egryl',
       })
       onRefetchDocs()

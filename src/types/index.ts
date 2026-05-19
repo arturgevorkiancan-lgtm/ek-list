@@ -207,6 +207,8 @@ export interface ParsedEGRYLData {
     legalAddress: string
     registrationDate?: string
   }
+  /** Адреса обособленных подразделений (не юридический адрес организации). */
+  branches?: Array<{ address: string; kpp?: string }>
   license?: {
     licenseNumber: string
     issueDate: string

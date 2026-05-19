@@ -20,14 +20,14 @@ function collectRegistryAddresses(licenses: LicenseRecord[]): Omit<RegistryAddre
   const rows: Omit<RegistryAddressRow, 'isDuplicate'>[] = []
 
   for (const lic of licenses) {
-    for (const [index, raw] of lic.addresses.entries()) {
+    for (const raw of lic.addresses) {
       const address = raw.trim()
       if (!address) continue
       const key = address.toLowerCase()
       if (seen.has(key)) continue
       seen.add(key)
       rows.push({
-        id: `${lic.license_number || 'lic'}-${index}-${key.slice(0, 24)}`,
+        id: key,
         address,
         kpp: lic.kpp,
         licenseNumber: lic.license_number,
@@ -94,9 +94,47 @@ export function RegistryWarehousesPanel({
     }))
   }, [activeLicenses, warehouses])
 
+  const registryAddressKey = useMemo(
+    () =>
+      collectRegistryAddresses(activeLicenses)
+        .map((r) => r.address.toLowerCase())
+        .join('\n'),
+    [activeLicenses],
+  )
+
   useEffect(() => {
-    setSelected(new Set(rows.filter((r) => !r.isDuplicate).map((r) => r.id)))
-  }, [rows])
+    if (!registryAddressKey) {
+      setSelected(new Set())
+      return
+    }
+    setSelected(
+      new Set(collectRegistryAddresses(activeLicenses).map((r) => r.address.toLowerCase())),
+    )
+  }, [registryAddressKey, activeLicenses])
+
+  const warehouseAddressKey = useMemo(
+    () =>
+      warehouses
+        .map((w) => w.address?.trim().toLowerCase() ?? '')
+        .filter(Boolean)
+        .join('|'),
+    [warehouses],
+  )
+
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev
+      const next = new Set(prev)
+      for (const id of prev) {
+        if (
+          warehouses.some((w) => isWarehouseAddressDuplicate(id, w.address))
+        ) {
+          next.delete(id)
+        }
+      }
+      return next
+    })
+  }, [warehouseAddressKey, warehouses])
 
   const allAddresses = rows.map((r) => r.address)
   const selectedCount = rows.filter((r) => selected.has(r.id)).length
@@ -111,8 +149,20 @@ export function RegistryWarehousesPanel({
   }
 
   const handleCreate = async () => {
-    const toCreate = rows.filter((r) => selected.has(r.id))
-    if (!toCreate.length) return
+    if (!clientId?.trim()) {
+      console.warn('RegistryWarehousesPanel: clientId не задан', { clientId })
+      showToast('Ошибка: не указан клиент', 'error')
+      return
+    }
+
+    const toCreate = rows.filter((r) => selected.has(r.id) && !r.isDuplicate)
+    const selectedAddresses = toCreate.map((r) => r.address)
+    console.log('Создаём склады:', selectedAddresses)
+
+    if (!selectedAddresses.length) {
+      showToast('Выберите адреса, которые ещё не добавлены как склады', 'error')
+      return
+    }
 
     setCreating(true)
     try {
@@ -125,12 +175,16 @@ export function RegistryWarehousesPanel({
       const count = await createWarehousesFromRegistry(payload)
       showToast(`Создано складов: ${count}`)
       onWarehousesCreated()
+      setSelected((prev) => {
+        const next = new Set(prev)
+        for (const row of toCreate) next.delete(row.id)
+        return next
+      })
       void loadRegistry()
     } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : 'Не удалось создать склады',
-        'error',
-      )
+      const message = err instanceof Error ? err.message : 'Не удалось создать склады'
+      console.error('RegistryWarehousesPanel: ошибка создания складов', err)
+      showToast(`Ошибка: ${message}`, 'error')
     } finally {
       setCreating(false)
     }

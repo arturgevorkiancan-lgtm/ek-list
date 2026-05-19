@@ -56,6 +56,12 @@ function isEgrnText(text: string): boolean {
   )
 }
 
+function isEgrylText(text: string): boolean {
+  return /выписка\s+из\s+единого\s+государственного\s+реестра\s+юридических\s+лиц|егрюл|адрес\s+юридического\s+лица/i.test(
+    text,
+  )
+}
+
 function isOpText(text: string): boolean {
   return /уведомление|поставлен[аоы]?\s+на\s+учет|обособленного\s+подразделения/i.test(
     text,
@@ -64,6 +70,11 @@ function isOpText(text: string): boolean {
 
 async function parsePdfByContent(file: File): Promise<ParsedWarehouseDocumentFields> {
   const text = await extractPdfText(file)
+  if (isEgrylText(text) && !isEgrnText(text)) {
+    throw new Error(
+      'Это выписка ЕГРЮЛ. Загрузите её в блоке «Документы организации» — адрес пойдёт только в реквизиты клиента.',
+    )
+  }
   if (isTechPlanText(text) && !isEgrnText(text)) {
     return fromTechPlan(await parseTechPlanFile(file))
   }
@@ -85,6 +96,11 @@ export async function parseWarehouseDocumentFile(
 
   if (ext === 'txt') {
     const text = await file.text()
+    if (isEgrylText(text) && !isEgrnText(text)) {
+      throw new Error(
+        'Это выписка ЕГРЮЛ. Загрузите её в блоке «Документы организации» — адрес пойдёт только в реквизиты клиента.',
+      )
+    }
     if (text.trim().startsWith('<')) {
       return fromTechPlan(parseTechPlanXmlText(text))
     }

@@ -2,6 +2,11 @@ import mammoth from 'mammoth'
 import * as pdfjs from 'pdfjs-dist'
 import type { ParsedEGRN, ParsedEGRYLData } from '../types'
 import { diagnostics } from './diagnostics'
+import {
+  EGRUL_LEGAL_ADDRESS_STOP_RE,
+  sanitizeEgrulLegalAddress,
+  sanitizeEgrulWarehouseAddress,
+} from './egrulAddress'
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -110,6 +115,7 @@ export function parseEGRNText(text: string, options?: { log?: boolean }): Parsed
       }
     }
   }
+  address = sanitizeEgrulWarehouseAddress(address)
 
   const cadMatch = text.match(/(?:кадастровый\s+номер|кадастровый\s+№)[:\s]*(\d{2}:\d{2}:\d{6,7}:\d+)/i)
     ?? normalized.match(CADASTRAL_PATTERN)
@@ -351,10 +357,61 @@ function extractLegalAddress(lines: string[]): string {
       searchText += ` ${lines[j]}`
     }
 
+    const stopAt = searchText.search(EGRUL_LEGAL_ADDRESS_STOP_RE)
+    if (stopAt > 0) {
+      const afterBoilerplate = searchText.slice(stopAt)
+      const postalInTail = afterBoilerplate.match(LEGAL_ADDRESS_PATTERN)
+      if (postalInTail) {
+        return sanitizeEgrulLegalAddress(postalInTail[0])
+      }
+      searchText = searchText.slice(0, stopAt)
+    }
+
     const m = searchText.match(LEGAL_ADDRESS_PATTERN)
-    return m?.[0]?.replace(/\s+/g, ' ').trim() ?? ''
+    const raw = m?.[0]?.replace(/\s+/g, ' ').trim() ?? ''
+    return sanitizeEgrulLegalAddress(raw)
   }
   return ''
+}
+
+const EGRUL_BRANCH_ADDRESS_LABELS = [
+  'Адрес (место нахождения) обособленного подразделения',
+  'Место нахождения обособленного подразделения',
+] as const
+
+function extractEgrulBranchAddresses(lines: string[]): Array<{ address: string; kpp?: string }> {
+  const branches: Array<{ address: string; kpp?: string }> = []
+  const seen = new Set<string>()
+
+  for (const label of EGRUL_BRANCH_ADDRESS_LABELS) {
+    const raw = findLineValue(lines, label, { maxLookahead: 5 })
+    const address = sanitizeEgrulWarehouseAddress(raw)
+    if (!address || seen.has(address)) continue
+    seen.add(address)
+    branches.push({ address })
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!/обособленн/i.test(lines[i]) || !/подразделен/i.test(lines[i])) continue
+    if (!lineHasLabel(lines[i], 'КПП')) continue
+    const kpp = lastDigitToken(lines[i], 9)
+    if (!kpp) continue
+
+    let address = ''
+    for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+      if (lineLooksLikeTableRow(lines[j]) && lineHasLabel(lines[j], 'КПП')) break
+      const candidate = sanitizeEgrulWarehouseAddress(lines[j])
+      if (candidate && /\d{6},/.test(candidate)) {
+        address = candidate
+        break
+      }
+    }
+    if (!address || seen.has(address)) continue
+    seen.add(address)
+    branches.push({ address, kpp })
+  }
+
+  return branches
 }
 
 function extractLicenseActivity(lines: string[], from: number, to: number, sectionText: string): string {
@@ -451,6 +508,7 @@ export function parseEGRYLText(text: string, options?: { log?: boolean }): Parse
   })
 
   const legalAddress = extractLegalAddress(lines)
+  const branches = extractEgrulBranchAddresses(lines)
 
   const regDateRaw = findLineValue(lines, 'Дата присвоения ОГРН', {
     mapValue: (rest) => firstDateToken(rest),
@@ -506,6 +564,10 @@ export function parseEGRYLText(text: string, options?: { log?: boolean }): Parse
       registrationDate,
     },
     rawText: text.slice(0, 8000),
+  }
+
+  if (branches.length > 0) {
+    result.branches = branches
   }
 
   if (hasLicense) {

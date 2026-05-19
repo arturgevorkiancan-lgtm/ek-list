@@ -8,6 +8,7 @@ import type {
   ParsedTechPlanData,
   Warehouse,
 } from '../types'
+import { isEgrulLegalAddressBoilerplate, sanitizeEgrulLegalAddress } from './egrulAddress'
 import type { ParsedWarehouseDocumentFields } from './parseWarehouseDocument'
 
 export type ConflictSourceKey = 'egryl' | 'license' | 'egrn' | 'techplan'
@@ -112,15 +113,22 @@ export function warehouseToFields(warehouse: Warehouse): ConflictFieldMap {
   }
 }
 
-export function egrylParsedToFields(data: ParsedEGRYLData): ConflictFieldMap {
-  return {
+export function egrylParsedToFields(
+  data: ParsedEGRYLData,
+  options?: { includeLegalAddress?: boolean },
+): ConflictFieldMap {
+  const fields: ConflictFieldMap = {
     inn: pickString(data.client.inn),
     kpp: pickString(data.client.kpp),
     ogrn: pickString(data.client.ogrn),
-    address: pickString(data.client.legalAddress),
     license_number: pickString(data.license?.licenseNumber),
     valid_to: pickString(data.license?.expiryDate),
   }
+  if (options?.includeLegalAddress !== false) {
+    const legal = sanitizeEgrulLegalAddress(data.client.legalAddress)
+    if (legal) fields.address = legal
+  }
+  return fields
 }
 
 export function licenseParsedToFields(data: ParsedLicenseData): ConflictFieldMap {
@@ -135,8 +143,11 @@ export function licenseParsedToFields(data: ParsedLicenseData): ConflictFieldMap
 }
 
 export function egrnParsedToFields(data: ParsedEGRN): ConflictFieldMap {
+  const rawAddress = data.address?.trim()
+  const address =
+    rawAddress && !isEgrulLegalAddressBoilerplate(rawAddress) ? rawAddress : undefined
   return {
-    address: pickString(data.address),
+    address: pickString(address),
     area: formatArea(data.area),
     cadastral_number: pickString(data.cadastralNumber),
     purpose: pickString(data.rightType),
@@ -156,8 +167,11 @@ export function techPlanParsedToFields(data: ParsedTechPlanData): ConflictFieldM
 export function warehouseDocFieldsToMap(
   parsed: ParsedWarehouseDocumentFields,
 ): ConflictFieldMap {
+  const rawAddress = parsed.address?.trim()
+  const address =
+    rawAddress && !isEgrulLegalAddressBoilerplate(rawAddress) ? rawAddress : undefined
   return {
-    address: pickString(parsed.address),
+    address: pickString(address),
     area: formatArea(parsed.area),
     cadastral_number: pickString(parsed.cadastral_number ?? undefined),
     floor: pickString(parsed.floor ?? undefined),
@@ -185,11 +199,14 @@ function parseDocFields(
   if (source === 'egryl') {
     const payload = data as { client?: ParsedEGRYLData['client']; license?: ParsedEGRYLData['license'] }
     if (!payload.client) return null
-    return egrylParsedToFields({
-      client: payload.client as ParsedEGRYLData['client'],
-      license: payload.license as ParsedEGRYLData['license'] | undefined,
-      rawText: '',
-    })
+    return egrylParsedToFields(
+      {
+        client: payload.client as ParsedEGRYLData['client'],
+        license: payload.license as ParsedEGRYLData['license'] | undefined,
+        rawText: '',
+      },
+      { includeLegalAddress: !warehouse },
+    )
   }
 
   if (source === 'license') {

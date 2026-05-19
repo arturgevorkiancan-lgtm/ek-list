@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2, X } from 'lucide-react'
 import type { Warehouse } from '../types'
+import {
+  formatWarehouseAddressDisplay,
+  isEgrulLegalAddressBoilerplate,
+} from '../lib/egrulAddress'
 import type { ParsedWarehouseDocumentFields } from '../lib/parseWarehouseDocument'
 
 type FieldKey = 'address' | 'area' | 'cadastral_number' | 'purpose' | 'floor'
@@ -24,7 +28,7 @@ const FIELD_LABELS: Record<FieldKey, string> = {
 function formatCurrentValue(key: FieldKey, warehouse: Warehouse): string {
   switch (key) {
     case 'address':
-      return warehouse.address?.trim() || '—'
+      return formatWarehouseAddressDisplay(warehouse.address).text
     case 'area':
       return warehouse.area_sqm != null ? `${warehouse.area_sqm} кв.м` : '—'
     case 'cadastral_number':
@@ -113,7 +117,10 @@ export function WarehouseDataUpdateModal({
 
   const handleApply = () => {
     const patch: Partial<Warehouse> = {}
-    if (selected.address && parsed.address) patch.address = parsed.address.trim()
+    if (selected.address && parsed.address) {
+      const addr = parsed.address.trim()
+      if (addr && !isEgrulLegalAddressBoilerplate(addr)) patch.address = addr
+    }
     if (selected.area && parsed.area != null && parsed.area !== '') {
       const n = Number(String(parsed.area).replace(',', '.'))
       if (Number.isFinite(n)) patch.area_sqm = n
