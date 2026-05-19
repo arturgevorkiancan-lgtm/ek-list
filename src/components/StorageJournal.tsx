@@ -27,6 +27,7 @@ import {
   syncOfflineReadings,
   type StorageReading,
 } from '../lib/api'
+import { rangeValueClass } from '../lib/checklistStatusStyles'
 import { GOST_DATA, type ProductType } from './StorageStandardsCard'
 import { useToast } from '../context/ToastContext'
 import type { SafeRange } from '../lib/storageUtils'
@@ -65,10 +66,15 @@ export function getValueRangeStatus(
 }
 
 function statusCellClass(status: ValueRangeStatus): string {
-  if (status === 'ok') return 'bg-emerald-50 text-emerald-800'
-  if (status === 'warn') return 'bg-orange-50 text-orange-800'
-  if (status === 'bad') return 'bg-red-50 text-red-800'
+  if (status === 'ok') return 'bg-green-50 text-green-800'
+  if (status === 'warn' || status === 'bad') return 'bg-red-50 text-red-800'
   return ''
+}
+
+function inputRangeClass(status: ValueRangeStatus): string {
+  const base = 'mt-1 w-full rounded-md border px-2 py-1.5 text-sm'
+  if (status === 'neutral') return `${base} border-slate-300`
+  return `${base} ${rangeValueClass(status === 'ok')}`
 }
 
 function getTempColor(val: number, range: SafeRange | null): string {
@@ -346,6 +352,20 @@ export function StorageJournal({
     [range],
   )
 
+  const draftTempStatus = useMemo((): ValueRangeStatus => {
+    if (!temperature.trim() || !range) return 'neutral'
+    const value = Number(temperature)
+    if (Number.isNaN(value)) return 'neutral'
+    return getTempStatus(value)
+  }, [temperature, range, getTempStatus])
+
+  const draftHumidStatus = useMemo((): ValueRangeStatus => {
+    if (!humidity.trim() || !range) return 'neutral'
+    const value = Number(humidity)
+    if (Number.isNaN(value)) return 'neutral'
+    return getHumidStatus(value)
+  }, [humidity, range, getHumidStatus])
+
   const handleSubmit = async (e: { preventDefault: () => void }) => {
     e.preventDefault()
     const temp = Number(temperature)
@@ -538,7 +558,7 @@ export function StorageJournal({
                 <input
                   type="number"
                   step={0.1}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                  className={inputRangeClass(draftTempStatus)}
                   value={temperature}
                   onChange={(e) => setTemperature(e.target.value)}
                   placeholder="18.5"
@@ -550,7 +570,7 @@ export function StorageJournal({
                 <input
                   type="number"
                   step={1}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+                  className={inputRangeClass(draftHumidStatus)}
                   value={humidity}
                   onChange={(e) => setHumidity(e.target.value)}
                   placeholder="70"

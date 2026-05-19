@@ -378,6 +378,23 @@ const WAREHOUSE_SECTIONS: WarehouseSectionId[] = [
 
 const COMPLIANCE_TOTAL = 14
 
+const COMPLIANCE_ITEM_IDS = [
+  'thermometer',
+  'hygrometer',
+  'journal_kept',
+  'pallets',
+  'wall_distance',
+  'aisle_width',
+  'no_sunlight',
+  'ventilation_ok',
+  'fire_alarm',
+  'security_alarm',
+  'temp_in_range',
+  'humidity_in_range',
+  'no_foreign_smell',
+  'egais_connected',
+] as const
+
 function countComplianceDone(warehouseId: string): number {
   try {
     const raw = localStorage.getItem(`compliance_${warehouseId}`)
@@ -424,6 +441,44 @@ function warehouseStatusBadge(stats: WarehouseReadingStats | undefined): {
     return { text: 'запись устарела', className: 'bg-orange-100 text-orange-800' }
   }
   return { text: 'активен', className: 'bg-emerald-100 text-emerald-800' }
+}
+
+function warehouseComplianceBadge(warehouseId: string): {
+  text: string
+  className: string
+} {
+  const redBadge = 'bg-red-50 border border-red-200 text-red-800'
+  const greenBadge = 'bg-green-50 border border-green-200 text-green-800'
+
+  try {
+    const raw = localStorage.getItem(`compliance_${warehouseId}`)
+    const state = raw
+      ? (JSON.parse(raw) as Record<string, { status?: string }>)
+      : {}
+
+    let applicable = 0
+    let done = 0
+
+    for (const id of COMPLIANCE_ITEM_IDS) {
+      const status = state[id]?.status ?? 'pending'
+      if (status === 'na') continue
+      applicable++
+      if (status === 'done') done++
+    }
+
+    if (applicable === 0) {
+      return { text: 'Требует проверки', className: redBadge }
+    }
+    if (done === applicable) {
+      return { text: 'Соответствует', className: greenBadge }
+    }
+    if (done === 0) {
+      return { text: 'Не соответствует', className: redBadge }
+    }
+    return { text: 'Требует проверки', className: redBadge }
+  } catch {
+    return { text: 'Требует проверки', className: redBadge }
+  }
 }
 
 function WarehouseNestedSection({
@@ -1142,6 +1197,7 @@ export function WarehouseDocumentsSection({
             const productTypes = parseProductTypes(w.product_types)
             const safeRange = computeSafeRange(productTypes)
             const statusBadge = warehouseStatusBadge(readingStats[w.id])
+            const complianceBadge = warehouseComplianceBadge(w.id)
             const fileCount = countWarehouseFiles(w.id, clientDocs)
             const complianceDone = countComplianceDone(w.id)
             const suspiciousName = hasSuspiciousWarehouseName(w.name)
@@ -1250,6 +1306,12 @@ export function WarehouseDocumentsSection({
                               )}
                               <span className="text-slate-400">·</span>
                               <span>{displayArea}</span>
+                              <span className="text-slate-400">·</span>
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium border ${complianceBadge.className}`}
+                              >
+                                {complianceBadge.text}
+                              </span>
                               <span className="text-slate-400">·</span>
                               <span
                                 className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge.className}`}

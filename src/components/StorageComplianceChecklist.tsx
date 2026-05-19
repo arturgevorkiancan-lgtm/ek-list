@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, ChevronDown, ChevronUp, Circle, Minus } from 'lucide-react'
+import { CheckCircle, ChevronDown, ChevronUp, Circle, XCircle } from 'lucide-react'
+import { checklistItemRowClass } from '../lib/checklistStatusStyles'
 import { fetchStorageReadings } from '../lib/api'
 import { getCombinedStorageRange, getValueRangeStatus } from './StorageJournal'
 import type { ProductType } from './StorageStandardsCard'
@@ -286,7 +287,19 @@ export function StorageComplianceChecklist({
     }, 300)
   }
 
-  const statusButton = (id: ComplianceItemId, status: ComplianceStatus, label: string, Icon: typeof Circle) => (
+  const statusButtonActiveClass: Record<ComplianceStatus, string> = {
+    pending: 'border-red-200 bg-red-50 text-red-800',
+    done: 'border-green-200 bg-green-50 text-green-800',
+    na: 'border-gray-200 bg-gray-50 text-gray-600',
+  }
+
+  const statusButton = (
+    id: ComplianceItemId,
+    status: ComplianceStatus,
+    label: string,
+    Icon: typeof Circle,
+    iconClass: string,
+  ) => (
     <button
       key={status}
       type="button"
@@ -294,11 +307,11 @@ export function StorageComplianceChecklist({
       onClick={() => setStatus(id, status)}
       className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs border ${
         (state[id]?.status ?? 'pending') === status
-          ? 'border-brand-500 bg-brand-50 text-brand-700'
+          ? statusButtonActiveClass[status]
           : 'border-slate-200 text-slate-600 hover:bg-slate-50'
       }`}
     >
-      <Icon className="h-3.5 w-3.5" />
+      <Icon className={`h-3.5 w-3.5 ${iconClass}`} />
       <span className="hidden sm:inline">{label}</span>
     </button>
   )
@@ -360,7 +373,7 @@ export function StorageComplianceChecklist({
               return (
                 <li
                   key={item.id}
-                  className="rounded-lg border border-slate-100 p-3 space-y-2 bg-slate-50/50"
+                  className={`rounded-lg border p-3 space-y-2 ${checklistItemRowClass(currentStatus)}`}
                 >
                   <div className="flex flex-wrap items-start gap-2">
                     {item.category === 'РАТК' ? (
@@ -393,9 +406,9 @@ export function StorageComplianceChecklist({
                   </div>
 
                   <div className="flex flex-wrap gap-1">
-                    {statusButton(item.id, 'pending', 'Не выполнено', Circle)}
-                    {statusButton(item.id, 'done', 'Выполнено', CheckCircle2)}
-                    {statusButton(item.id, 'na', 'Н/П', Minus)}
+                    {statusButton(item.id, 'pending', 'Не выполнено', XCircle, 'text-red-600')}
+                    {statusButton(item.id, 'done', 'Выполнено', CheckCircle, 'text-green-600')}
+                    {statusButton(item.id, 'na', 'Н/П', Circle, 'text-gray-400')}
                   </div>
 
                   {showComment && (
@@ -412,7 +425,7 @@ export function StorageComplianceChecklist({
                     latestReading &&
                     range &&
                     currentStatus === 'done' && (
-                      <p className="text-xs text-emerald-700">
+                      <p className="text-xs text-green-700">
                         По последней записи журнала:{' '}
                         {item.id === 'temp_in_range'
                           ? `${latestReading.temperature}°C`

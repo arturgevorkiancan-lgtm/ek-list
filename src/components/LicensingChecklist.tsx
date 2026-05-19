@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { format, isValid, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { Calendar, ChevronDown, ChevronRight, MessageSquare } from 'lucide-react'
+import {
+  Calendar,
+  CheckCircle,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  MessageSquare,
+  XCircle,
+} from 'lucide-react'
+import { checklistItemRowClass } from '../lib/checklistStatusStyles'
 import type { Client, License, OperationType, Warehouse } from '../types'
 
 export interface LicensingChecklistProps {
@@ -215,12 +224,6 @@ function nextStatus(status: ItemStatus): ItemStatus {
   if (status === 'pending') return 'done'
   if (status === 'done') return 'na'
   return 'pending'
-}
-
-function statusIcon(status: ItemStatus): string {
-  if (status === 'done') return '✅'
-  if (status === 'na') return '—'
-  return '○'
 }
 
 function statusLabel(status: ItemStatus): string {
@@ -544,18 +547,29 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
                         const overdue = isDueOverdue(state.dueDate)
 
                         return (
-                          <li key={item.id} className="px-4 py-3 space-y-2">
+                          <li
+                            key={item.id}
+                            className={`mx-2 my-1 rounded-lg border px-3 py-3 space-y-2 ${checklistItemRowClass(state.status)}`}
+                          >
                             <div className="flex flex-wrap items-start gap-2">
                               <button
                                 type="button"
                                 onClick={() => cycleStatus(item.id)}
-                                className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md border border-slate-200 text-base leading-none hover:bg-slate-50"
+                                className={`shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md border bg-white/80 hover:opacity-90 ${checklistItemRowClass(state.status)}`}
                                 title="Статус: ожидание → готово → н/п"
                               >
-                                {statusIcon(state.status)}
+                                {state.status === 'done' && (
+                                  <CheckCircle className="h-5 w-5 text-green-600" />
+                                )}
+                                {state.status === 'pending' && (
+                                  <XCircle className="h-5 w-5 text-red-600" />
+                                )}
+                                {state.status === 'na' && (
+                                  <Circle className="h-5 w-5 text-gray-400" />
+                                )}
                               </button>
-                              <p className="flex-1 min-w-0 text-sm text-slate-800 pt-1">
-                                <span className="text-slate-400 mr-1.5">{item.id}.</span>
+                              <p className="flex-1 min-w-0 text-sm pt-1">
+                                <span className="opacity-60 mr-1.5">{item.id}.</span>
                                 {item.title}
                               </p>
                               <div className="flex items-center gap-1 shrink-0">
