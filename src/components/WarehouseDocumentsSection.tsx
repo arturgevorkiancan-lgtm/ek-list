@@ -50,7 +50,9 @@ import {
   type WarehouseSectionId,
 } from '../lib/collapsibleStorage'
 import { CopyOnClick } from './CopyOnClick'
+import { OrganizationEgrylBlock } from './OrganizationEgrylBlock'
 import { RegistryBlock } from './RegistryBlock'
+import type { ClientRequisitesSnapshot } from '../lib/egrylRequisites'
 import { StorageComplianceChecklist } from './StorageComplianceChecklist'
 import { StorageJournal, parseProductTypes } from './StorageJournal'
 import { GOST_DATA, StorageStandardsCard } from './StorageStandardsCard'
@@ -97,9 +99,12 @@ const WAREHOUSE_DOC_META: Record<
 
 interface WarehouseDocumentsSectionProps {
   clientId: string
+  client: ClientRequisitesSnapshot
   clientInn?: string | null
   clientDocs: Document[]
   onRefetchDocs: () => void
+  onRequisitesUpdated?: (patch: Partial<ClientRequisitesSnapshot>) => void
+  onClientRefetch?: () => void
   onConflictSource?: (source: DataSource) => void
   onEgrnSummaryChange?: (egrn: ParsedEGRN | null) => void
   highlightWarehouseId?: string | null
@@ -444,9 +449,12 @@ function WarehouseNestedSection({
 
 export function WarehouseDocumentsSection({
   clientId,
+  client,
   clientInn,
   clientDocs,
   onRefetchDocs,
+  onRequisitesUpdated,
+  onClientRefetch,
   onConflictSource,
   onEgrnSummaryChange,
   highlightWarehouseId,
@@ -902,6 +910,15 @@ export function WarehouseDocumentsSection({
   return (
     <>
     <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 overflow-x-hidden">
+      <OrganizationEgrylBlock
+        clientId={clientId}
+        client={client}
+        clientDocs={clientDocs}
+        onRefetchDocs={onRefetchDocs}
+        onRequisitesUpdated={onRequisitesUpdated}
+        onClientRefetch={onClientRefetch}
+      />
+
       <div className="flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 font-semibold text-slate-900">
           <Factory className="h-5 w-5 text-brand-600" />

@@ -482,9 +482,20 @@ function ClientWorkspace() {
         ) : (
           <WarehouseDocumentsSection
             clientId={id!}
+            client={{
+              name: client.name,
+              inn: client.inn,
+              kpp: client.kpp,
+              ogrn: client.ogrn,
+              legal_address: client.legal_address,
+            }}
             clientInn={client.inn}
             clientDocs={clientDocs}
             onRefetchDocs={() => void refetchDocs()}
+            onClientRefetch={() => {
+              void qc.invalidateQueries({ queryKey: ['client', id] })
+              void qc.invalidateQueries({ queryKey: ['clients'] })
+            }}
             highlightWarehouseId={highlightWarehouseId}
           />
         )}

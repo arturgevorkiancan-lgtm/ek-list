@@ -474,9 +474,27 @@ export function ClientDocumentsTab({
 
       <WarehouseDocumentsSection
         clientId={clientId}
+        client={{
+          name: client.name,
+          inn: client.inn,
+          kpp: client.kpp,
+          ogrn: client.ogrn,
+          legal_address: client.legal_address,
+        }}
         clientInn={client.inn}
         clientDocs={clientDocs}
         onRefetchDocs={() => void refetchDocs()}
+        onRequisitesUpdated={(patch) => {
+          onRequisitesChange((prev) => ({
+            ...prev,
+            name: patch.name ?? prev.name,
+            inn: patch.inn ?? prev.inn,
+            kpp: patch.kpp ?? prev.kpp,
+            ogrn: patch.ogrn ?? prev.ogrn,
+            legal_address: patch.legal_address ?? prev.legal_address,
+          }))
+        }}
+        onClientRefetch={onApplied}
         onConflictSource={(source) => addSource(source)}
         onEgrnSummaryChange={(egrn) => {
           if (egrn) setEgrnForm({ ...EMPTY_EGRN, ...egrn })

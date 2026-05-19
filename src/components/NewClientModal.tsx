@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { FileText, Loader2, Upload, X } from 'lucide-react'
+import { parseEgrylUploadFile } from '../lib/parseEgrylFile'
+import { parsedEgrylToRequisites } from '../lib/egrylRequisites'
 
 export interface NewClientFormState {
   name: string
@@ -57,13 +59,41 @@ export function NewClientModal({
 }: NewClientModalProps) {
   const [form, setForm] = useState<NewClientFormState>(EMPTY_FORM)
   const [errors, setErrors] = useState<Partial<Record<keyof NewClientFormState, string>>>({})
+  const egrylInputRef = useRef<HTMLInputElement>(null)
+  const [egrylLoading, setEgrylLoading] = useState(false)
+  const [egrylError, setEgrylError] = useState<string | null>(null)
 
   useEffect(() => {
     if (open) {
       setForm(EMPTY_FORM)
       setErrors({})
+      setEgrylError(null)
+      setEgrylLoading(false)
     }
   }, [open])
+
+  const handleEgrylFile = async (file: File) => {
+    setEgrylError(null)
+    setEgrylLoading(true)
+    try {
+      const result = await parseEgrylUploadFile(file)
+      const patch = parsedEgrylToRequisites(result.client)
+      setForm((f) => ({
+        ...f,
+        name: patch.name || f.name,
+        inn: patch.inn ?? f.inn,
+        kpp: patch.kpp ?? f.kpp,
+        ogrn: patch.ogrn ?? f.ogrn,
+        legal_address: patch.legal_address ?? f.legal_address,
+      }))
+      setErrors({})
+    } catch (e) {
+      setEgrylError(e instanceof Error ? e.message : 'Ошибка парсинга')
+    } finally {
+      setEgrylLoading(false)
+      if (egrylInputRef.current) egrylInputRef.current.value = ''
+    }
+  }
 
   useEffect(() => {
     if (!open) return
@@ -133,6 +163,39 @@ export function NewClientModal({
       <form onSubmit={handleSubmit} className="space-y-3">
         {field('name', 'Название организации', { required: true })}
         {field('inn', 'ИНН', { required: true })}
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
+          <p className="text-sm text-slate-600">Или загрузите выписку ЕГРЮЛ</p>
+          <button
+            type="button"
+            disabled={egrylLoading || saving}
+            onClick={() => egrylInputRef.current?.click()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-brand-200 bg-white px-4 py-2.5 text-sm font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+          >
+            {egrylLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            <FileText className="h-4 w-4" />
+            Загрузить выписку ЕГРЮЛ
+          </button>
+          <input
+            ref={egrylInputRef}
+            type="file"
+            accept=".pdf,.xml"
+            className="hidden"
+            disabled={egrylLoading || saving}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void handleEgrylFile(f)
+            }}
+          />
+          <p className="text-xs text-slate-500">Поддерживаются форматы PDF и XML</p>
+          <p className="text-xs text-slate-500">Данные заполнятся автоматически</p>
+          {egrylError && <p className="text-xs text-red-600">{egrylError}</p>}
+        </div>
+
         {field('kpp', 'КПП')}
         {field('ogrn', 'ОГРН')}
         {field('legal_address', 'Адрес')}
