@@ -1,4 +1,6 @@
-import type { Dispatch, SetStateAction } from 'react'
+import type { Dispatch, ReactNode, SetStateAction } from 'react'
+import { Copy } from 'lucide-react'
+import { CopyOnClick } from './CopyOnClick'
 
 export const REISSUE_REASON_OPTIONS = [
   'Изменение наименования организации',
@@ -36,6 +38,35 @@ export interface LicenseExtendedFormState {
   payment_order_date: string
   reissue_reason: string
   reissue_description: string
+}
+
+function CopyableInput({
+  label,
+  value,
+  copyLabel,
+  children,
+}: {
+  label: string
+  value: string
+  copyLabel: string
+  children: ReactNode
+}) {
+  return (
+    <label className="block text-sm">
+      <span className="flex items-center justify-between gap-2 text-slate-600">
+        <span>{label}</span>
+        {value.trim() ? (
+          <CopyOnClick text={value.trim()} label={copyLabel}>
+            <span className="inline-flex items-center gap-1 text-xs text-brand-600">
+              <Copy className="h-3 w-3" />
+              копировать
+            </span>
+          </CopyOnClick>
+        ) : null}
+      </span>
+      {children}
+    </label>
+  )
 }
 
 interface ClientRequisitesFormProps {
@@ -84,44 +115,55 @@ export function ClientRequisitesForm({
           />
         </label>
         <div className="grid gap-3 sm:grid-cols-3">
-          {(['ogrn', 'inn', 'kpp'] as const).map((key) => (
-            <label key={key} className="block text-sm">
-              <span className="text-slate-600">{key.toUpperCase()}</span>
+          {(
+            [
+              ['ogrn', 'ОГРН', 'ОГРН скопирован'],
+              ['inn', 'ИНН', 'ИНН скопирован'],
+              ['kpp', 'КПП', 'КПП скопирован'],
+            ] as const
+          ).map(([key, label, copyLabel]) => (
+            <CopyableInput
+              key={key}
+              label={label}
+              value={form[key]}
+              copyLabel={copyLabel}
+            >
               <input
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                 value={form[key]}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
               />
-            </label>
+            </CopyableInput>
           ))}
         </div>
-        <label className="block text-sm">
-          <span className="text-slate-600">Юридический адрес</span>
+        <CopyableInput
+          label="Юридический адрес"
+          value={form.legal_address}
+          copyLabel="Адрес скопирован"
+        >
           <textarea
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             rows={2}
             value={form.legal_address}
             onChange={(e) => setForm((f) => ({ ...f, legal_address: e.target.value }))}
           />
-        </label>
+        </CopyableInput>
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block text-sm">
-            <span className="text-slate-600">Email</span>
+          <CopyableInput label="Email" value={form.email} copyLabel="Email скопирован">
             <input
               type="email"
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
             />
-          </label>
-          <label className="block text-sm">
-            <span className="text-slate-600">Телефон</span>
+          </CopyableInput>
+          <CopyableInput label="Телефон" value={form.phone} copyLabel="Телефон скопирован">
             <input
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
             />
-          </label>
+          </CopyableInput>
         </div>
       </fieldset>
 

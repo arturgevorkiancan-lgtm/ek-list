@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Pencil } from 'lucide-react'
+import { CopyOnClick } from './CopyOnClick'
 import { useAuth } from '../lib/auth'
 import { isSupabaseConfigured } from '../lib/supabase'
 import {
@@ -78,13 +79,78 @@ function displayWarehouseName(name: string): string {
   return name.replace(/^склад\s+/i, '')
 }
 
-function formatRequisites(client: Client): string {
-  const parts = [
-    client.inn && `ИНН ${client.inn}`,
-    client.kpp && `КПП ${client.kpp}`,
-    client.ogrn && `ОГРН ${client.ogrn}`,
-  ].filter(Boolean)
-  return parts.join(' · ') || 'Реквизиты не заполнены'
+function RequisitesLine({ client }: { client: Client }) {
+  const parts: ReactNode[] = []
+  if (client.inn) {
+    parts.push(
+      <span key="inn">
+        ИНН{' '}
+        <CopyOnClick text={client.inn} label="ИНН скопирован">
+          {client.inn}
+        </CopyOnClick>
+      </span>,
+    )
+  }
+  if (client.kpp) {
+    parts.push(
+      <span key="kpp">
+        КПП{' '}
+        <CopyOnClick text={client.kpp} label="КПП скопирован">
+          {client.kpp}
+        </CopyOnClick>
+      </span>,
+    )
+  }
+  if (client.ogrn) {
+    parts.push(
+      <span key="ogrn">
+        ОГРН{' '}
+        <CopyOnClick text={client.ogrn} label="ОГРН скопирован">
+          {client.ogrn}
+        </CopyOnClick>
+      </span>,
+    )
+  }
+  if (client.legal_address) {
+    parts.push(
+      <span key="addr">
+        <CopyOnClick text={client.legal_address} label="Адрес скопирован">
+          {client.legal_address}
+        </CopyOnClick>
+      </span>,
+    )
+  }
+  if (client.phone) {
+    parts.push(
+      <span key="phone">
+        <CopyOnClick text={client.phone} label="Телефон скопирован">
+          {client.phone}
+        </CopyOnClick>
+      </span>,
+    )
+  }
+  if (client.email) {
+    parts.push(
+      <span key="email">
+        <CopyOnClick text={client.email} label="Email скопирован">
+          {client.email}
+        </CopyOnClick>
+      </span>,
+    )
+  }
+  if (parts.length === 0) {
+    return <span>Реквизиты не заполнены</span>
+  }
+  return (
+    <>
+      {parts.map((part, i) => (
+        <span key={i}>
+          {i > 0 && <span className="text-slate-400"> · </span>}
+          {part}
+        </span>
+      ))}
+    </>
+  )
 }
 
 function readReadings(warehouseId: string): StorageReadingRow[] {
@@ -343,7 +409,9 @@ export function ClientDashboard({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold text-slate-900">{displayName}</h1>
-            <p className="mt-1 text-sm text-slate-500">{formatRequisites(client)}</p>
+            <p className="mt-1 text-sm text-slate-500">
+              <RequisitesLine client={client} />
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {latestLicense?.license_number ? (
                 <p className="text-sm text-slate-700">

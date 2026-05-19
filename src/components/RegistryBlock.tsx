@@ -1,12 +1,25 @@
 import { useCallback, useEffect, useState } from 'react'
 import { format, parseISO, addDays, isValid } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { ChevronDown, ChevronRight, Loader2, RefreshCw } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  FileText,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react'
 import {
   loadFromCache,
   type LicenseRecord,
   type RegistryLookupResponse,
 } from '../lib/licenseRegistry'
+import { readBoolStorage, writeBoolStorage } from '../lib/collapsibleStorage'
+import { CopyOnClick } from './CopyOnClick'
+
+const REGISTRY_EXPANDED_KEY = 'registry_rat_expanded'
+const REGISTRY_URL = 'https://fsrar.gov.ru/opendata/7710747640-reestr'
+const REGISTRY_UPDATE_CMD = 'python3 ~/Desktop/update_registry.py'
 
 type BlockState = 'idle' | 'loading' | 'success' | 'error'
 
@@ -90,6 +103,8 @@ function LicenseCard({
     ? 'rounded-lg border border-red-200 bg-red-50 p-3 text-red-700'
     : 'rounded-lg border border-slate-200 bg-white p-3 text-slate-800'
 
+  const licenseNumber = record.license_number || '—'
+
   return (
     <div className={cardClass}>
       <button
@@ -104,7 +119,13 @@ function LicenseCard({
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
           )}
           <LicenseLabelBadge record={record} />
-          <span className="font-medium">{record.license_number || '—'}</span>
+          {record.license_number ? (
+            <CopyOnClick text={record.license_number} label="Номер лицензии скопирован">
+              <span className="font-medium">{licenseNumber}</span>
+            </CopyOnClick>
+          ) : (
+            <span className="font-medium">{licenseNumber}</span>
+          )}
           <span className={archived ? 'text-red-500' : 'text-slate-500'}>
             до {formatDate(record.valid_to)}
           </span>
@@ -116,15 +137,20 @@ function LicenseCard({
         <p className={`mt-1.5 pl-6 text-xs ${archived ? 'text-red-600' : 'text-slate-600'}`}>
           {record.kpp && (
             <>
-              КПП {record.kpp}
+              КПП{' '}
+              <CopyOnClick text={record.kpp} label="КПП скопирован">
+                {record.kpp}
+              </CopyOnClick>
               {firstAddress ? ' | ' : ''}
             </>
           )}
           {firstAddress && (
-            <span>
-              {firstAddress}
-              {extraAddresses > 0 && ` +${extraAddresses} адресов`}
-            </span>
+            <CopyOnClick text={firstAddress} label="Адрес скопирован">
+              <span>
+                {firstAddress}
+                {extraAddresses > 0 && ` +${extraAddresses} адресов`}
+              </span>
+            </CopyOnClick>
           )}
           {!record.kpp && !firstAddress && '—'}
         </p>
@@ -134,7 +160,11 @@ function LicenseCard({
           className={`mt-2 pl-6 text-xs list-disc space-y-0.5 ${archived ? 'text-red-600' : 'text-slate-600'}`}
         >
           {record.addresses.map((addr, i) => (
-            <li key={i}>{addr}</li>
+            <li key={i}>
+              <CopyOnClick text={addr} label="Адрес скопирован">
+                {addr}
+              </CopyOnClick>
+            </li>
           ))}
         </ul>
       )}
@@ -190,13 +220,85 @@ function Section({
   )
 }
 
+function RegistryUpdateGuide() {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/80 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-100/80"
+      >
+        {open ? (
+          <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+        )}
+        Как обновить данные?
+      </button>
+      {open && (
+        <div className="border-t border-slate-200 px-4 py-4 text-sm text-slate-700 space-y-4">
+          <p className="font-medium text-slate-900">Для обновления реестра:</p>
+          <ol className="list-decimal list-inside space-y-3">
+            <li>
+              <span className="ml-1">Скачайте файл реестра:</span>
+              <div className="mt-1.5 pl-5">
+                <CopyOnClick text={REGISTRY_URL} label="Ссылка скопирована">
+                  <span className="break-all text-brand-700">{REGISTRY_URL}</span>
+                </CopyOnClick>
+                <p className="mt-1.5">
+                  <CopyOnClick text={REGISTRY_URL} label="Ссылка скопирована">
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-brand-600">
+                      <Copy className="h-3.5 w-3.5" />
+                      Скопировать ссылку
+                    </span>
+                  </CopyOnClick>
+                </p>
+              </div>
+            </li>
+            <li>Разархивируйте ZIP в папку Загрузки</li>
+            <li>
+              <span className="ml-1">Запустите в Терминале:</span>
+              <div className="mt-1.5 pl-5 rounded-md bg-slate-900 text-slate-100 px-3 py-2 font-mono text-xs">
+                <CopyOnClick text={REGISTRY_UPDATE_CMD} label="Команда скопирована">
+                  {REGISTRY_UPDATE_CMD}
+                </CopyOnClick>
+              </div>
+              <p className="mt-1.5 pl-5">
+                <CopyOnClick text={REGISTRY_UPDATE_CMD} label="Команда скопирована">
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-brand-600">
+                    <Copy className="h-3.5 w-3.5" />
+                    Скопировать команду
+                  </span>
+                </CopyOnClick>
+              </p>
+            </li>
+          </ol>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function RegistryBlock({ clientInn }: RegistryBlockProps) {
   const inn = clientInn?.trim() ?? ''
   const hasInn = inn.length > 0
 
+  const [blockExpanded, setBlockExpanded] = useState(() =>
+    readBoolStorage(REGISTRY_EXPANDED_KEY, false),
+  )
   const [state, setState] = useState<BlockState>(() => (hasInn ? 'loading' : 'idle'))
   const [data, setData] = useState<RegistryLookupResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const toggleBlockExpanded = () => {
+    setBlockExpanded((prev) => {
+      const next = !prev
+      writeBoolStorage(REGISTRY_EXPANDED_KEY, next)
+      return next
+    })
+  }
 
   const runLookup = useCallback(async () => {
     if (!hasInn) return
@@ -222,22 +324,30 @@ export function RegistryBlock({ clientInn }: RegistryBlockProps) {
     void runLookup()
   }, [hasInn, runLookup])
 
-  const lastUpdatedLabel =
-    data?.last_updated && state === 'success'
-      ? formatDateTime(data.last_updated)
-      : null
+  const lastUpdatedShort =
+    data?.last_updated && state === 'success' ? formatDate(data.last_updated) : null
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-      <div className="flex flex-wrap items-center gap-2 justify-between">
-        <div className="flex flex-wrap items-center gap-2 min-w-0">
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 justify-between p-4 border-b border-slate-100">
+        <button
+          type="button"
+          onClick={toggleBlockExpanded}
+          className="flex flex-wrap items-center gap-2 min-w-0 text-left flex-1"
+        >
+          {blockExpanded ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+          )}
+          <FileText className="h-5 w-5 text-brand-600 shrink-0" />
           <h2 className="font-semibold text-slate-900">Реестр РАТ</h2>
-          {lastUpdatedLabel && (
-            <span className="text-xs text-slate-500">
-              последнее обновление: {lastUpdatedLabel}
+          {lastUpdatedShort && (
+            <span className="text-xs text-slate-500 font-normal">
+              последнее обновление: {lastUpdatedShort}
             </span>
           )}
-        </div>
+        </button>
         <button
           type="button"
           disabled={!hasInn || state === 'loading'}
@@ -253,53 +363,64 @@ export function RegistryBlock({ clientInn }: RegistryBlockProps) {
         </button>
       </div>
 
-      {!hasInn && state === 'idle' && (
-        <p className="text-sm text-slate-600">Добавьте ИНН клиента для просмотра реестра</p>
-      )}
+      {blockExpanded && (
+        <div className="p-5 space-y-4">
+          <RegistryUpdateGuide />
 
-      {state === 'loading' && (
-        <p className="text-sm text-slate-600 flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-brand-600" />
-          Загружаем реестр...
-        </p>
-      )}
+          {!hasInn && state === 'idle' && (
+            <p className="text-sm text-slate-600">Добавьте ИНН клиента для просмотра реестра</p>
+          )}
 
-      {state === 'error' && error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 space-y-2">
-          <p>{error}</p>
-          <button
-            type="button"
-            onClick={() => void runLookup()}
-            disabled={!hasInn}
-            className="text-sm font-medium text-red-800 underline hover:no-underline disabled:opacity-50"
-          >
-            Повторить
-          </button>
-        </div>
-      )}
-
-      {state === 'success' && data && (
-        <div className="space-y-4">
-          {data.active.length === 0 && data.archived.length === 0 && (
-            <p className="text-sm text-slate-600 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              Лицензии по ИНН в реестре не найдены
+          {state === 'loading' && (
+            <p className="text-sm text-slate-600 flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-brand-600" />
+              Загружаем реестр...
             </p>
           )}
-          <Section
-            title="ДЕЙСТВУЮЩИЕ"
-            count={data.active.length}
-            records={data.active}
-            archived={false}
-            defaultOpen
-          />
-          <Section
-            title="АРХИВ"
-            count={data.archived.length}
-            records={data.archived}
-            archived
-            defaultOpen={false}
-            titleClassName="text-red-600"
-          />
+
+          {state === 'error' && error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 space-y-2">
+              <p>{error}</p>
+              <button
+                type="button"
+                onClick={() => void runLookup()}
+                disabled={!hasInn}
+                className="text-sm font-medium text-red-800 underline hover:no-underline disabled:opacity-50"
+              >
+                Повторить
+              </button>
+            </div>
+          )}
+
+          {state === 'success' && data && (
+            <div className="space-y-4">
+              {data.last_updated && (
+                <p className="text-xs text-slate-500">
+                  Данные из кэша · обновлено {formatDateTime(data.last_updated)}
+                </p>
+              )}
+              {data.active.length === 0 && data.archived.length === 0 && (
+                <p className="text-sm text-slate-600 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  Лицензии по ИНН в реестре не найдены
+                </p>
+              )}
+              <Section
+                title="ДЕЙСТВУЮЩИЕ"
+                count={data.active.length}
+                records={data.active}
+                archived={false}
+                defaultOpen
+              />
+              <Section
+                title="АРХИВ"
+                count={data.archived.length}
+                records={data.archived}
+                archived
+                defaultOpen={false}
+                titleClassName="text-red-600"
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

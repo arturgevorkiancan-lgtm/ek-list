@@ -18,7 +18,7 @@ interface Toast {
 }
 
 interface ToastContextValue {
-  showToast: (message: string, type?: ToastType) => void
+  showToast: (message: string, type?: ToastType, durationMs?: number) => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -39,7 +39,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const showToast = useCallback(
-    (message: string, type: ToastType = 'success') => {
+    (message: string, type: ToastType = 'success', durationMs = AUTO_DISMISS_MS) => {
       const id = crypto.randomUUID()
       setToasts((prev) => {
         const next = [...prev, { id, message, type }]
@@ -55,7 +55,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         }
         return next
       })
-      const timer = setTimeout(() => dismiss(id), AUTO_DISMISS_MS)
+      const timer = setTimeout(() => dismiss(id), durationMs)
       timersRef.current.set(id, timer)
     },
     [dismiss],

@@ -3,17 +3,21 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
+  BookOpen,
   Check,
+  CheckSquare,
   ChevronDown,
-  ChevronUp,
+  ChevronRight,
   Factory,
   FileText,
   Loader2,
   Map,
   Pencil,
   Plus,
+  Thermometer,
   Trash2,
   Upload,
+  Warehouse as WarehouseIcon,
   X,
 } from 'lucide-react'
 import { parseEGRNFile } from '../lib/egrnParser'
@@ -36,10 +40,20 @@ import {
   type WarehouseWithProducts,
 } from '../lib/api'
 import { useToast } from '../context/ToastContext'
+import {
+  defaultWarehouseExpanded,
+  hasSuspiciousWarehouseName,
+  readBoolStorage,
+  warehouseExpandedKey,
+  warehouseSectionKey,
+  writeBoolStorage,
+  type WarehouseSectionId,
+} from '../lib/collapsibleStorage'
+import { CopyOnClick } from './CopyOnClick'
 import { RegistryBlock } from './RegistryBlock'
 import { StorageComplianceChecklist } from './StorageComplianceChecklist'
 import { StorageJournal, parseProductTypes } from './StorageJournal'
-import { StorageStandardsCard } from './StorageStandardsCard'
+import { GOST_DATA, StorageStandardsCard } from './StorageStandardsCard'
 import { computeSafeRange } from '../lib/storageUtils'
 import {
   getWarehouseReadingStats,
@@ -335,11 +349,96 @@ function WarehouseOpUploadZone({
   )
 }
 
-function SummaryField({ label, value }: { label: string; value: string }) {
+const WAREHOUSE_SECTIONS: WarehouseSectionId[] = [
+  'documents',
+  'journal',
+  'compliance',
+  'gost',
+]
+
+const COMPLIANCE_TOTAL = 14
+
+function countComplianceDone(warehouseId: string): number {
+  try {
+    const raw = localStorage.getItem(`compliance_${warehouseId}`)
+    const state = raw ? (JSON.parse(raw) as Record<string, { status?: string }>) : {}
+    return Object.values(state).filter((x) => x.status === 'done').length
+  } catch {
+    return 0
+  }
+}
+
+function getLatestJournalLabel(warehouseId: string): string {
+  try {
+    const raw = localStorage.getItem(`storage_readings_${warehouseId}`)
+    const readings: { recorded_at: string }[] = raw ? JSON.parse(raw) : []
+    if (readings.length === 0) return 'нет записей'
+    let latest: string | null = null
+    for (const r of readings) {
+      if (!latest || r.recorded_at > latest) latest = r.recorded_at
+    }
+    if (!latest) return 'нет записей'
+    return format(parseISO(latest), 'dd.MM.yyyy', { locale: ru })
+  } catch {
+    return 'нет записей'
+  }
+}
+
+function countWarehouseFiles(warehouseId: string, clientDocs: Document[]): number {
+  return clientDocs.filter((d) => d.warehouse_id === warehouseId).length
+}
+
+function formatGostSubtitle(productTypes: ReturnType<typeof parseProductTypes>): string {
+  if (productTypes.length === 0) return 'не выбрано'
+  return productTypes.map((k) => GOST_DATA[k].label).join(', ')
+}
+
+function warehouseStatusBadge(stats: WarehouseReadingStats | undefined): {
+  text: string
+  className: string
+} {
+  if (!stats || stats.count30 === 0) {
+    return { text: 'нет записей', className: 'bg-slate-100 text-slate-600' }
+  }
+  if (stats.stale24h) {
+    return { text: 'запись устарела', className: 'bg-orange-100 text-orange-800' }
+  }
+  return { text: 'активен', className: 'bg-emerald-100 text-emerald-800' }
+}
+
+function WarehouseNestedSection({
+  icon,
+  title,
+  subtitle,
+  expanded,
+  onToggle,
+  children,
+}: {
+  icon: ReactNode
+  title: string
+  subtitle: string
+  expanded: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
   return (
-    <span className="text-xs text-slate-600">
-      <span className="text-slate-500">{label}:</span> {value}
-    </span>
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+      >
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+        )}
+        <span className="shrink-0 text-brand-600">{icon}</span>
+        <span className="font-medium text-slate-900 min-w-0 truncate">{title}</span>
+        <span className="ml-auto text-xs text-slate-500 shrink-0 pl-2">{subtitle}</span>
+      </button>
+      {expanded && <div className="border-t border-slate-100 p-3">{children}</div>}
+    </div>
   )
 }
 
@@ -367,7 +466,8 @@ export function WarehouseDocumentsSection({
   const [uploading, setUploading] = useState<Record<string, boolean>>({})
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set())
+  const [warehouseExpanded, setWarehouseExpanded] = useState<Record<string, boolean>>({})
+  const [sectionExpanded, setSectionExpanded] = useState<Record<string, boolean>>({})
   const [kppSuggestion, setKppSuggestion] = useState<KppSuggestion | null>(null)
 
   const [opContext, setOpContext] = useState<{
@@ -465,10 +565,29 @@ export function WarehouseDocumentsSection({
   }, [warehouses, qc])
 
   useEffect(() => {
+    if (warehouses.length === 0) return
+    const nextWarehouse: Record<string, boolean> = {}
+    const nextSection: Record<string, boolean> = {}
+    warehouses.forEach((w, index) => {
+      const defaultExpanded = defaultWarehouseExpanded(warehouses.length, index)
+      nextWarehouse[w.id] = readBoolStorage(warehouseExpandedKey(w.id), defaultExpanded)
+      for (const section of WAREHOUSE_SECTIONS) {
+        const sectionKey = `${w.id}_${section}`
+        nextSection[sectionKey] = readBoolStorage(
+          warehouseSectionKey(w.id, section),
+          false,
+        )
+      }
+    })
+    setWarehouseExpanded(nextWarehouse)
+    setSectionExpanded(nextSection)
+  }, [warehouses])
+
+  useEffect(() => {
     if (!highlightWarehouseId) return
-    setCollapsedIds((prev) => {
-      const next = new Set(prev)
-      next.delete(highlightWarehouseId)
+    setWarehouseExpanded((prev) => {
+      const next = { ...prev, [highlightWarehouseId]: true }
+      writeBoolStorage(warehouseExpandedKey(highlightWarehouseId), true)
       return next
     })
     const el = document.getElementById(`warehouse-${highlightWarehouseId}`)
@@ -492,16 +611,27 @@ export function WarehouseDocumentsSection({
 
   const uploadKey = (warehouseId: string, docType: string) => `${warehouseId}:${docType}`
 
-  const toggleCollapsed = (warehouseId: string) => {
-    setCollapsedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(warehouseId)) next.delete(warehouseId)
-      else next.add(warehouseId)
-      return next
+  const isWarehouseExpanded = (warehouseId: string) => warehouseExpanded[warehouseId] ?? false
+
+  const toggleWarehouseExpanded = (warehouseId: string) => {
+    setWarehouseExpanded((prev) => {
+      const nextVal = !prev[warehouseId]
+      writeBoolStorage(warehouseExpandedKey(warehouseId), nextVal)
+      return { ...prev, [warehouseId]: nextVal }
     })
   }
 
-  const isCollapsed = (warehouseId: string) => collapsedIds.has(warehouseId)
+  const isSectionExpanded = (warehouseId: string, section: WarehouseSectionId) =>
+    sectionExpanded[`${warehouseId}_${section}`] ?? false
+
+  const toggleSectionExpanded = (warehouseId: string, section: WarehouseSectionId) => {
+    const mapKey = `${warehouseId}_${section}`
+    setSectionExpanded((prev) => {
+      const nextVal = !prev[mapKey]
+      writeBoolStorage(warehouseSectionKey(warehouseId, section), nextVal)
+      return { ...prev, [mapKey]: nextVal }
+    })
+  }
 
   const handleAddWarehouse = async () => {
     if (!newName.trim()) return
@@ -866,9 +996,13 @@ export function WarehouseDocumentsSection({
             const displayKpp = w.kpp || '—'
             const displayArea =
               w.area_sqm != null ? `${w.area_sqm} кв.м` : '—'
-            const collapsed = isCollapsed(w.id)
+            const expanded = isWarehouseExpanded(w.id)
             const productTypes = parseProductTypes(w.product_types)
             const safeRange = computeSafeRange(productTypes)
+            const statusBadge = warehouseStatusBadge(readingStats[w.id])
+            const fileCount = countWarehouseFiles(w.id, clientDocs)
+            const complianceDone = countComplianceDone(w.id)
+            const suspiciousName = hasSuspiciousWarehouseName(w.name)
 
             return (
               <div
@@ -906,164 +1040,164 @@ export function WarehouseDocumentsSection({
                       </div>
                     </div>
                   ) : (
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      {editingId === w.id ? (
-                        <div className="flex gap-2">
-                          <input
-                            className="rounded-md border border-slate-300 px-2 py-1 text-sm font-medium"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') void handleSaveName(w)
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className="text-brand-600 text-sm"
-                            onClick={() => void handleSaveName(w)}
-                          >
-                            OK
-                          </button>
-                        </div>
-                      ) : (
-                        <p className="font-semibold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                          <Factory className="h-4 w-4 text-brand-600 shrink-0" />
-                          <span>Склад «{displayWarehouseName(w.name)}»</span>
-                          {readingStats[w.id] && (
-                            <span className="inline-flex items-center gap-1.5 font-normal">
-                              {readingStats[w.id].stale24h && (
-                                <span
-                                  className="h-2 w-2 rounded-full bg-orange-500 shrink-0"
-                                  title="Последняя запись старше 24 ч"
-                                />
-                              )}
-                              {readingStats[w.id].count30 === 0 ? (
-                                <span className="text-xs text-slate-400">нет записей</span>
-                              ) : (
-                                <span className="text-xs text-slate-600 bg-slate-200 rounded-full px-2 py-0.5">
-                                  {readingStats[w.id].count30} записей
-                                </span>
-                              )}
-                            </span>
-                          )}
-                        </p>
-                      )}
-                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
-                        <SummaryField label="КПП" value={displayKpp} />
-                        <SummaryField label="Адрес" value={displayAddress} />
-                        <SummaryField label="Площадь" value={displayArea} />
-                      </div>
-                      {!collapsed && (w.cadastral_number || rental?.rent_end) && (
-                        <p className="text-xs text-slate-500 mt-1">
-                          {w.cadastral_number && <>КН: {w.cadastral_number}</>}
-                          {w.cadastral_number && rental?.rent_end && ' · '}
-                          {rental?.rent_end && (
-                            <>
-                              Аренда до{' '}
-                              {format(parseISO(rental.rent_end), 'dd.MM.yyyy', { locale: ru })}
-                            </>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <button
                         type="button"
-                        onClick={() => toggleCollapsed(w.id)}
-                        className="inline-flex items-center gap-0.5 rounded px-2 py-1 text-xs text-slate-600 hover:bg-white"
+                        onClick={() => toggleWarehouseExpanded(w.id)}
+                        className="min-w-0 flex-1 text-left"
                       >
-                        {collapsed ? (
-                          <>
-                            <ChevronDown className="h-3.5 w-3.5" />
-                            развернуть
-                          </>
+                        {editingId === w.id ? (
+                          <div
+                            className="flex gap-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              className="rounded-md border border-slate-300 px-2 py-1 text-sm font-medium"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void handleSaveName(w)
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="text-brand-600 text-sm"
+                              onClick={() => void handleSaveName(w)}
+                            >
+                              OK
+                            </button>
+                          </div>
                         ) : (
                           <>
-                            <ChevronUp className="h-3.5 w-3.5" />
-                            свернуть
+                            <div className="flex flex-wrap items-center gap-2">
+                              {expanded ? (
+                                <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+                              )}
+                              <WarehouseIcon className="h-4 w-4 text-brand-600 shrink-0" />
+                              <span className="font-semibold text-slate-900">
+                                {displayWarehouseName(w.name)}
+                              </span>
+                              {suspiciousName && (
+                                <span
+                                  className="text-amber-600"
+                                  title="Проверьте название склада"
+                                >
+                                  ⚠️
+                                </span>
+                              )}
+                              <span className="text-sm text-slate-600 font-normal">
+                                КПП:{' '}
+                                {w.kpp ? (
+                                  <CopyOnClick text={w.kpp} label="КПП скопирован">
+                                    {displayKpp}
+                                  </CopyOnClick>
+                                ) : (
+                                  displayKpp
+                                )}
+                              </span>
+                            </div>
+                            <p className="mt-1 pl-6 text-xs text-slate-600 flex flex-wrap items-center gap-x-1 gap-y-0.5">
+                              {displayAddress !== '—' ? (
+                                <CopyOnClick text={displayAddress} label="Адрес скопирован">
+                                  {displayAddress}
+                                </CopyOnClick>
+                              ) : (
+                                <span>{displayAddress}</span>
+                              )}
+                              <span className="text-slate-400">·</span>
+                              <span>{displayArea}</span>
+                              <span className="text-slate-400">·</span>
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge.className}`}
+                              >
+                                {statusBadge.text}
+                              </span>
+                            </p>
+                            {expanded && (w.cadastral_number || rental?.rent_end) && (
+                              <p className="text-xs text-slate-500 mt-1 pl-6">
+                                {w.cadastral_number && <>КН: {w.cadastral_number}</>}
+                                {w.cadastral_number && rental?.rent_end && ' · '}
+                                {rental?.rent_end && (
+                                  <>
+                                    Аренда до{' '}
+                                    {format(parseISO(rental.rent_end), 'dd.MM.yyyy', {
+                                      locale: ru,
+                                    })}
+                                  </>
+                                )}
+                              </p>
+                            )}
                           </>
                         )}
                       </button>
-                      <button
-                        type="button"
-                        className="rounded p-1.5 text-slate-500 hover:bg-white"
-                        title="Редактировать название"
-                        onClick={() => {
-                          setEditingId(w.id)
-                          setEditName(w.name)
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600"
-                        title="Удалить склад"
-                        onClick={() => setConfirmDeleteWarehouseId(w.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          className="rounded p-1.5 text-slate-500 hover:bg-white"
+                          title="Редактировать название"
+                          onClick={() => {
+                            setEditingId(w.id)
+                            setEditName(w.name)
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600"
+                          title="Удалить склад"
+                          onClick={() => setConfirmDeleteWarehouseId(w.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
                   )}
                 </div>
 
-                {!collapsed && confirmDeleteWarehouseId !== w.id && (
-                  <div className="border-t border-slate-200 px-4 pb-4 pt-3 space-y-3">
-                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                      {(['egrn', 'rental', 'tech_plan'] as WarehouseDocType[]).map(
-                        (docType) => {
-                          const meta = WAREHOUSE_DOC_META[docType]
-                          const doc = docsForWarehouse(w.id, docType)
-                          const key = uploadKey(w.id, docType)
-                          const loading = uploading[key]
-                          return (
-                            <WarehouseUploadZone
-                              key={docType}
-                              title={meta.title}
-                              subtitle={meta.subtitle}
-                              accept={meta.accept}
-                              formats={meta.formats}
-                              icon={docIcons[docType]}
-                              fileName={doc?.filename ?? null}
-                              loading={loading}
-                              onFile={(f) => void handleWarehouseUpload(w.id, docType, f)}
-                              onClear={() => {
-                                if (doc) void handleClearDoc(doc)
-                              }}
-                            />
-                          )
-                        },
-                      )}
-                      <WarehouseOpUploadZone
-                        loading={opLoadingWarehouseId === w.id}
-                        notifications={opDocsForWarehouse(w.id)}
-                        onFile={(f) => void handleOpFile(w.id, f)}
-                        onRemove={(doc) => void handleClearDoc(doc)}
-                      />
-                    </div>
-
-                    <StorageStandardsCard
-                      warehouse={w}
-                      onSaveProductTypes={async (types) => {
-                        await upsertWarehouse({ ...w, product_types: types })
-                        void refetchWarehouses()
-                      }}
-                    />
-
-                    <StorageComplianceChecklist
-                      warehouseId={w.id}
-                      warehouseName={w.name}
-                      productTypes={productTypes}
-                    />
-
-                    <StorageJournal
-                      warehouseId={w.id}
-                      clientId={clientId}
-                      warehouseName={w.name}
-                      safeRange={safeRange}
-                    />
+                {expanded && confirmDeleteWarehouseId !== w.id && (
+                  <div className="border-t border-slate-200 px-4 pb-4 pt-3 space-y-2">
+                    <WarehouseNestedSection
+                      icon={<FileText className="h-4 w-4" />}
+                      title="Документы склада"
+                      subtitle={`${fileCount} файлов`}
+                      expanded={isSectionExpanded(w.id, 'documents')}
+                      onToggle={() => toggleSectionExpanded(w.id, 'documents')}
+                    >
+                      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                        {(['egrn', 'rental', 'tech_plan'] as WarehouseDocType[]).map(
+                          (docType) => {
+                            const meta = WAREHOUSE_DOC_META[docType]
+                            const doc = docsForWarehouse(w.id, docType)
+                            const key = uploadKey(w.id, docType)
+                            const loading = uploading[key]
+                            return (
+                              <WarehouseUploadZone
+                                key={docType}
+                                title={meta.title}
+                                subtitle={meta.subtitle}
+                                accept={meta.accept}
+                                formats={meta.formats}
+                                icon={docIcons[docType]}
+                                fileName={doc?.filename ?? null}
+                                loading={loading}
+                                onFile={(f) => void handleWarehouseUpload(w.id, docType, f)}
+                                onClear={() => {
+                                  if (doc) void handleClearDoc(doc)
+                                }}
+                              />
+                            )
+                          },
+                        )}
+                        <WarehouseOpUploadZone
+                          loading={opLoadingWarehouseId === w.id}
+                          notifications={opDocsForWarehouse(w.id)}
+                          onFile={(f) => void handleOpFile(w.id, f)}
+                          onRemove={(doc) => void handleClearDoc(doc)}
+                        />
+                      </div>
 
                     {opContext?.warehouseId === w.id && (
                       <div className="rounded-lg border border-brand-200 bg-brand-50/50 p-4 space-y-3 text-sm">
@@ -1156,6 +1290,53 @@ export function WarehouseDocumentsSection({
                         </div>
                       </div>
                     )}
+
+                    </WarehouseNestedSection>
+
+                    <WarehouseNestedSection
+                      icon={<Thermometer className="h-4 w-4" />}
+                      title="Журнал хранения"
+                      subtitle={`последняя запись: ${getLatestJournalLabel(w.id)}`}
+                      expanded={isSectionExpanded(w.id, 'journal')}
+                      onToggle={() => toggleSectionExpanded(w.id, 'journal')}
+                    >
+                      <StorageJournal
+                        warehouseId={w.id}
+                        clientId={clientId}
+                        warehouseName={w.name}
+                        safeRange={safeRange}
+                      />
+                    </WarehouseNestedSection>
+
+                    <WarehouseNestedSection
+                      icon={<CheckSquare className="h-4 w-4" />}
+                      title="Условия хранения"
+                      subtitle={`${complianceDone}/${COMPLIANCE_TOTAL} выполнено`}
+                      expanded={isSectionExpanded(w.id, 'compliance')}
+                      onToggle={() => toggleSectionExpanded(w.id, 'compliance')}
+                    >
+                      <StorageComplianceChecklist
+                        warehouseId={w.id}
+                        warehouseName={w.name}
+                        productTypes={productTypes}
+                      />
+                    </WarehouseNestedSection>
+
+                    <WarehouseNestedSection
+                      icon={<BookOpen className="h-4 w-4" />}
+                      title="Требования ГОСТ"
+                      subtitle={formatGostSubtitle(productTypes)}
+                      expanded={isSectionExpanded(w.id, 'gost')}
+                      onToggle={() => toggleSectionExpanded(w.id, 'gost')}
+                    >
+                      <StorageStandardsCard
+                        warehouse={w}
+                        onSaveProductTypes={async (types) => {
+                          await upsertWarehouse({ ...w, product_types: types })
+                          void refetchWarehouses()
+                        }}
+                      />
+                    </WarehouseNestedSection>
                   </div>
                 )}
               </div>
@@ -1230,7 +1411,9 @@ export function WarehouseDocumentsSection({
       )}
     </div>
 
-    <RegistryBlock clientInn={clientInn} />
+    <div className="mt-4">
+      <RegistryBlock clientInn={clientInn} />
+    </div>
     </>
   )
 }
