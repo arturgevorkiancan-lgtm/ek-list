@@ -593,6 +593,43 @@ export async function deleteWarehouse(id: string): Promise<void> {
   localStore.deleteWarehouse(id)
 }
 
+export type RegistryWarehouseInsert = {
+  client_id: string
+  name: string
+  address: string
+  kpp: string | null
+}
+
+export async function createWarehousesFromRegistry(
+  items: RegistryWarehouseInsert[],
+): Promise<number> {
+  if (!items.length) return 0
+
+  if (isSupabaseConfigured && supabase) {
+    const { error } = await supabase.from('warehouses').insert(items)
+    if (error) throw formatApiError(error)
+    return items.length
+  }
+
+  for (const item of items) {
+    localStore.saveWarehouse({
+      id: uid(),
+      client_id: item.client_id,
+      name: item.name,
+      address: item.address,
+      kpp: item.kpp,
+      cadastral_number: null,
+      area_sqm: null,
+      floor: null,
+      room_number: null,
+      object_purpose: null,
+      additional_address_info: null,
+      created_at: new Date().toISOString(),
+    })
+  }
+  return items.length
+}
+
 function sanitizeStorageFilename(originalName: string): string {
   return `${Date.now()}_${originalName
     .normalize('NFD')

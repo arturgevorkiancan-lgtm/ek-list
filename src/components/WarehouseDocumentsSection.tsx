@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -52,6 +52,10 @@ import {
 import { CopyOnClick } from './CopyOnClick'
 import { OrganizationEgrylBlock } from './OrganizationEgrylBlock'
 import { RegistryBlock } from './RegistryBlock'
+import { RegistryWarehousesPanel } from './RegistryWarehousesPanel'
+import { WarehouseDataUpdateModal } from './WarehouseDataUpdateModal'
+import { parseWarehouseDocumentFile } from '../lib/parseWarehouseDocument'
+import type { ParsedWarehouseDocumentFields } from '../lib/parseWarehouseDocument'
 import type { ClientRequisitesSnapshot } from '../lib/egrylRequisites'
 import { StorageComplianceChecklist } from './StorageComplianceChecklist'
 import { StorageJournal, parseProductTypes } from './StorageJournal'
@@ -489,6 +493,14 @@ export function WarehouseDocumentsSection({
   const [readingStats, setReadingStats] = useState<Record<string, WarehouseReadingStats>>({})
   const [confirmDeleteWarehouseId, setConfirmDeleteWarehouseId] = useState<string | null>(null)
   const [deletingWarehouseId, setDeletingWarehouseId] = useState<string | null>(null)
+  const [dataUpdateModal, setDataUpdateModal] = useState<{
+    warehouse: WarehouseWithProducts
+    parsed: ParsedWarehouseDocumentFields
+  } | null>(null)
+  const [dataUpdateSaving, setDataUpdateSaving] = useState(false)
+  const [dataUpdateLoadingId, setDataUpdateLoadingId] = useState<string | null>(null)
+  const [dataUpdateWarehouseId, setDataUpdateWarehouseId] = useState<string | null>(null)
+  const dataUpdateInputRef = useRef<HTMLInputElement>(null)
 
   const {
     data: warehouses = [],
@@ -801,6 +813,48 @@ export function WarehouseDocumentsSection({
       void qc.invalidateQueries({ queryKey: ['rental-contracts', clientId] })
     } finally {
       setUploading((u) => ({ ...u, [key]: false }))
+    }
+  }
+
+  const openDataUpdatePicker = (warehouseId: string) => {
+    setDataUpdateWarehouseId(warehouseId)
+    dataUpdateInputRef.current?.click()
+  }
+
+  const handleDataUpdateFile = async (warehouseId: string, file: File) => {
+    setDataUpdateLoadingId(warehouseId)
+    try {
+      const parsed = await parseWarehouseDocumentFile(file)
+      const w = warehouses.find((x) => x.id === warehouseId)
+      if (!w) return
+      setDataUpdateModal({ warehouse: w, parsed })
+    } catch (e) {
+      showToast(
+        e instanceof Error ? e.message : 'Ошибка разбора документа',
+        'error',
+      )
+    } finally {
+      setDataUpdateLoadingId(null)
+      setDataUpdateWarehouseId(null)
+    }
+  }
+
+  const applyDataUpdate = async (patch: Partial<Warehouse>) => {
+    if (!dataUpdateModal) return
+    setDataUpdateSaving(true)
+    try {
+      await upsertWarehouse({ ...dataUpdateModal.warehouse, ...patch })
+      setDataUpdateModal(null)
+      showToast('Данные склада обновлены')
+      void refetchWarehouses()
+      void qc.invalidateQueries({ queryKey: ['warehouses', clientId] })
+    } catch (e) {
+      showToast(
+        e instanceof Error ? e.message : 'Не удалось обновить склад',
+        'error',
+      )
+    } finally {
+      setDataUpdateSaving(false)
     }
   }
 
@@ -1216,6 +1270,22 @@ export function WarehouseDocumentsSection({
                         />
                       </div>
 
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          disabled={dataUpdateLoadingId === w.id}
+                          onClick={() => openDataUpdatePicker(w.id)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50 min-h-[44px]"
+                        >
+                          {dataUpdateLoadingId === w.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileText className="h-4 w-4 text-brand-600" />
+                          )}
+                          Обновить данные из документа
+                        </button>
+                      </div>
+
                     {opContext?.warehouseId === w.id && (
                       <div className="rounded-lg border border-brand-200 bg-brand-50/50 p-4 space-y-3 text-sm">
                         <p className="font-medium text-slate-800">
@@ -1428,7 +1498,40 @@ export function WarehouseDocumentsSection({
       )}
     </div>
 
-    <div className="mt-4">
+    <input
+      ref={dataUpdateInputRef}
+      type="file"
+      accept=".pdf,.xml,.txt"
+      className="hidden"
+      onChange={(e) => {
+        const file = e.target.files?.[0]
+        e.target.value = ''
+        if (file && dataUpdateWarehouseId) {
+          void handleDataUpdateFile(dataUpdateWarehouseId, file)
+        }
+      }}
+    />
+
+    {dataUpdateModal && (
+      <WarehouseDataUpdateModal
+        warehouse={dataUpdateModal.warehouse}
+        parsed={dataUpdateModal.parsed}
+        saving={dataUpdateSaving}
+        onCancel={() => setDataUpdateModal(null)}
+        onApply={(patch) => void applyDataUpdate(patch)}
+      />
+    )}
+
+    <div className="mt-4 space-y-4">
+      <RegistryWarehousesPanel
+        clientId={clientId}
+        clientInn={clientInn}
+        warehouses={warehouses}
+        onWarehousesCreated={() => {
+          void refetchWarehouses()
+          void qc.invalidateQueries({ queryKey: ['warehouses', clientId] })
+        }}
+      />
       <RegistryBlock clientInn={clientInn} />
     </div>
     </>
