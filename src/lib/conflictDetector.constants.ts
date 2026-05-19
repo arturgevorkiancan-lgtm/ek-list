@@ -1,0 +1,5 @@
+export const SOURCE_EGRYL = 'ЕГРЮЛ'
+export const SOURCE_REGISTRY = 'Реестр лицензий (таблица)'
+export const SOURCE_RATK = 'Выписка РАТК'
+export const SOURCE_APPLICATION = 'Заявление Госуслуг'
+export const SOURCE_OP_NOTIFICATION = 'Уведомление ОП'

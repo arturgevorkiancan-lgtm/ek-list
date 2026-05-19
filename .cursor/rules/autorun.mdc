@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+---
+Run all terminal commands automatically without asking for confirmation.
+Never prompt "should I run this?" — execute immediately.
+This applies to: npm, npx, node, tsc, vite, supabase, git commands.

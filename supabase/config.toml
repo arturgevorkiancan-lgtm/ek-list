@@ -1,0 +1,6 @@
+# Supabase local / deploy configuration
+
+[functions.notify-expiry]
+
+[functions.license-registry-lookup]
+verify_jwt = false

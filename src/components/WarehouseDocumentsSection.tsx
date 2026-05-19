@@ -1,0 +1,1236 @@
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { format, parseISO } from 'date-fns'
+import { ru } from 'date-fns/locale'
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Factory,
+  FileText,
+  Loader2,
+  Map,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react'
+import { parseEGRNFile } from '../lib/egrnParser'
+import { parseRentalFile } from '../lib/rentalParser'
+import { parseTechPlanFile } from '../lib/techPlanParser'
+import { parseOPNotificationPdf } from '../lib/opNotificationParser'
+import {
+  deleteClientDocument,
+  deleteWarehouse,
+  fetchLicenseAddresses,
+  fetchLicenses,
+  fetchRentalContracts,
+  fetchStorageReadings,
+  fetchWarehouses,
+  syncOfflineReadings,
+  saveRentalFromParsed,
+  uploadClientDocument,
+  upsertWarehouse,
+  type StorageReading,
+  type WarehouseWithProducts,
+} from '../lib/api'
+import { useToast } from '../context/ToastContext'
+import { RegistryBlock } from './RegistryBlock'
+import { StorageComplianceChecklist } from './StorageComplianceChecklist'
+import { StorageJournal, parseProductTypes } from './StorageJournal'
+import { StorageStandardsCard } from './StorageStandardsCard'
+import { computeSafeRange } from '../lib/storageUtils'
+import {
+  getWarehouseReadingStats,
+  type WarehouseReadingStats,
+} from '../lib/warehouseReadingStats'
+import { opNotificationToDataSource } from '../lib/conflictMappers'
+import type { DataSource } from '../lib/conflictDetector'
+import type {
+  Document,
+  LicenseAddress,
+  ParsedEGRN,
+  ParsedOPNotification,
+  Warehouse,
+} from '../types'
+
+type WarehouseDocType = 'egrn' | 'rental' | 'tech_plan'
+
+const WAREHOUSE_DOC_META: Record<
+  WarehouseDocType,
+  { title: string; subtitle: string; accept: string; formats: string }
+> = {
+  egrn: {
+    title: 'ЕГРН',
+    subtitle: 'объект',
+    accept: '.pdf,.docx',
+    formats: 'PDF, DOCX',
+  },
+  rental: {
+    title: 'Договор аренды',
+    subtitle: 'аренда',
+    accept: '.pdf,.docx',
+    formats: 'PDF, DOCX',
+  },
+  tech_plan: {
+    title: 'Технический план',
+    subtitle: 'техплан',
+    accept: '.pdf,.xml',
+    formats: 'PDF, XML',
+  },
+}
+
+interface WarehouseDocumentsSectionProps {
+  clientId: string
+  clientInn?: string | null
+  clientDocs: Document[]
+  onRefetchDocs: () => void
+  onConflictSource?: (source: DataSource) => void
+  onEgrnSummaryChange?: (egrn: ParsedEGRN | null) => void
+  highlightWarehouseId?: string | null
+}
+
+type KppSuggestion = {
+  warehouseId: string
+  warehouseName: string
+  kpp: string
+  source: 'egrn' | 'op'
+}
+
+function normalizeCadastral(value: string): string {
+  return value.replace(/\s/g, '').trim()
+}
+
+/** Strip leading "Склад " for card header only; stored name is unchanged. */
+function displayWarehouseName(name: string): string {
+  return name.replace(/^склад\s+/i, '')
+}
+
+function buildBulkStorageCsv(
+  rows: { warehouseName: string; reading: StorageReading }[],
+): string {
+  const header = [
+    'Склад',
+    'Дата',
+    'Время',
+    'Температура (°C)',
+    'Влажность (%)',
+    'Кто замерял',
+    'Примечания',
+  ]
+  const dataRows = rows.map(({ warehouseName, reading: r }) => {
+    const dt = parseISO(r.recorded_at)
+    return [
+      warehouseName,
+      format(dt, 'dd.MM.yyyy', { locale: ru }),
+      format(dt, 'HH:mm', { locale: ru }),
+      String(r.temperature),
+      String(r.humidity),
+      r.recorded_by ?? '',
+      r.notes ?? '',
+    ]
+  })
+  return [header, ...dataRows]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'))
+    .join('\n')
+}
+
+function findKppByCadastral(
+  cadastral: string,
+  addresses: LicenseAddress[],
+): string | null {
+  const norm = normalizeCadastral(cadastral)
+  if (!norm) return null
+  const match = addresses.find(
+    (a) =>
+      a.kpp &&
+      a.cadastral_number &&
+      normalizeCadastral(a.cadastral_number) === norm,
+  )
+  return match?.kpp?.trim() || null
+}
+
+function WarehouseUploadZone({
+  title,
+  subtitle,
+  accept,
+  formats,
+  icon,
+  fileName,
+  loading,
+  onFile,
+  onClear,
+}: {
+  title: string
+  subtitle: string
+  accept: string
+  formats: string
+  icon: ReactNode
+  fileName: string | null
+  loading: boolean
+  onFile: (file: File) => void
+  onClear: () => void
+}) {
+  const [dragging, setDragging] = useState(false)
+  const uploaded = !!fileName
+
+  const dropClass = `relative rounded-lg border-2 border-dashed p-3 text-center transition-colors min-h-[120px] flex flex-col items-center justify-center ${
+    dragging ? 'border-brand-500 bg-brand-50' : 'border-slate-300 bg-white'
+  }`
+
+  return (
+    <div>
+      <p className="text-sm font-medium text-slate-800 mb-0.5">{title}</p>
+      <p className="text-xs text-slate-500 mb-2">({subtitle})</p>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragging(false)
+          const file = e.dataTransfer.files[0]
+          if (file && !loading) onFile(file)
+        }}
+        className={dropClass}
+      >
+        {uploaded && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="absolute top-2 right-2 text-xs text-slate-500 hover:text-red-600"
+            title="Удалить и загрузить снова"
+          >
+            × удалить
+          </button>
+        )}
+
+        {loading ? (
+          <Loader2 className="h-7 w-7 animate-spin text-brand-600" />
+        ) : uploaded && fileName ? (
+          <>
+            <Check className="h-6 w-6 text-green-600 shrink-0" />
+            <p className="mt-2 text-xs font-medium text-slate-700 truncate max-w-full px-2">
+              {fileName}
+            </p>
+          </>
+        ) : (
+          <>
+            {icon}
+            <p className="mt-2 text-xs text-slate-500">{formats}</p>
+            <p className="mt-1 text-xs text-slate-600">
+              Перетащите или{' '}
+              <label className="cursor-pointer font-medium text-brand-600 hover:underline">
+                выберите
+                <input
+                  type="file"
+                  accept={accept}
+                  className="hidden"
+                  disabled={loading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) onFile(f)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WarehouseOpUploadZone({
+  loading,
+  notifications,
+  onFile,
+  onRemove,
+}: {
+  loading: boolean
+  notifications: Document[]
+  onFile: (file: File) => void
+  onRemove: (doc: Document) => void
+}) {
+  const [dragging, setDragging] = useState(false)
+
+  const dropClass = `relative rounded-lg border-2 border-dashed p-3 text-center transition-colors min-h-[120px] flex flex-col items-center justify-center ${
+    dragging ? 'border-brand-500 bg-brand-50' : 'border-slate-300 bg-white'
+  }`
+
+  const handleDrop = (file: File | undefined) => {
+    if (file && !loading) onFile(file)
+  }
+
+  return (
+    <div>
+      <p className="text-sm font-medium text-slate-800 mb-0.5">Уведомление ОП</p>
+      <p className="text-xs text-slate-500 mb-2">(постановка на учёт)</p>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragging(false)
+          handleDrop(e.dataTransfer.files[0])
+        }}
+        className={dropClass}
+      >
+        {loading ? (
+          <Loader2 className="h-7 w-7 animate-spin text-brand-600" />
+        ) : (
+          <>
+            <FileText className="h-6 w-6 text-slate-400" />
+            <p className="mt-2 text-xs text-slate-500">PDF</p>
+            <p className="mt-1 text-xs text-slate-600">
+              Перетащите или{' '}
+              <label className="cursor-pointer font-medium text-brand-600 hover:underline">
+                выберите
+                <input
+                  type="file"
+                  accept=".pdf"
+                  className="hidden"
+                  disabled={loading}
+                  onChange={(e) => {
+                    handleDrop(e.target.files?.[0])
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </p>
+          </>
+        )}
+      </div>
+      {notifications.length > 0 && (
+        <ul className="space-y-1 text-sm mt-2">
+          {notifications.map((d) => {
+            const parsed = (d.parsed_data ?? {}) as unknown as ParsedOPNotification
+            return (
+              <li key={d.id} className="flex items-center gap-2 text-slate-700">
+                <span className="min-w-0 truncate">
+                  📄 {d.filename} → КПП: {parsed.kppOP || '—'}
+                </span>
+                {parsed.kppOP && <Check className="h-4 w-4 text-green-600 shrink-0" />}
+                <button
+                  type="button"
+                  onClick={() => onRemove(d)}
+                  className="ml-auto shrink-0 text-slate-400 hover:text-red-600 text-lg leading-none"
+                  title="Удалить"
+                >
+                  ×
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function SummaryField({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="text-xs text-slate-600">
+      <span className="text-slate-500">{label}:</span> {value}
+    </span>
+  )
+}
+
+export function WarehouseDocumentsSection({
+  clientId,
+  clientInn,
+  clientDocs,
+  onRefetchDocs,
+  onConflictSource,
+  onEgrnSummaryChange,
+  highlightWarehouseId,
+}: WarehouseDocumentsSectionProps) {
+  const qc = useQueryClient()
+  const { showToast } = useToast()
+  const [modalOpen, setModalOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+
+  useEffect(() => {
+    if (!modalOpen) return
+    const onEsc = () => setModalOpen(false)
+    window.addEventListener('checklist:escape', onEsc)
+    return () => window.removeEventListener('checklist:escape', onEsc)
+  }, [modalOpen])
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState<Record<string, boolean>>({})
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set())
+  const [kppSuggestion, setKppSuggestion] = useState<KppSuggestion | null>(null)
+
+  const [opContext, setOpContext] = useState<{
+    warehouseId: string
+    parsed: ParsedOPNotification
+    file: File
+  } | null>(null)
+  const [opApplyKpp, setOpApplyKpp] = useState(true)
+  const [opLoadingWarehouseId, setOpLoadingWarehouseId] = useState<string | null>(null)
+  const [bulkExporting, setBulkExporting] = useState(false)
+  const [readingStats, setReadingStats] = useState<Record<string, WarehouseReadingStats>>({})
+  const [confirmDeleteWarehouseId, setConfirmDeleteWarehouseId] = useState<string | null>(null)
+  const [deletingWarehouseId, setDeletingWarehouseId] = useState<string | null>(null)
+
+  const {
+    data: warehouses = [],
+    isLoading: warehousesLoading,
+    error: warehousesError,
+    refetch: refetchWarehouses,
+  } = useQuery({
+    queryKey: ['warehouses', clientId],
+    queryFn: () => fetchWarehouses(clientId),
+  })
+
+  const warehousesErrorMessage =
+    warehousesError instanceof Error
+      ? warehousesError.message
+      : warehousesError
+        ? String(warehousesError)
+        : ''
+
+  const { data: rentals = [] } = useQuery({
+    queryKey: ['rental-contracts', clientId],
+    queryFn: () => fetchRentalContracts(clientId),
+  })
+
+  const { data: licenses = [] } = useQuery({
+    queryKey: ['licenses', clientId],
+    queryFn: () => fetchLicenses(clientId),
+  })
+
+  const licenseIdsKey = licenses.map((l) => l.id).join(',')
+
+  const { data: licenseAddresses = [] } = useQuery({
+    queryKey: ['license-addresses-all', clientId, licenseIdsKey],
+    queryFn: async () => {
+      const rows: LicenseAddress[] = []
+      for (const lic of licenses) {
+        const fromTable = await fetchLicenseAddresses(lic.id)
+        rows.push(...fromTable)
+        for (const b of lic.addresses ?? []) {
+          if (b.kpp || b.cadastral_number) {
+            rows.push({
+              id: `${lic.id}-${b.kpp ?? b.cadastral_number}`,
+              license_id: lic.id,
+              address: b.address,
+              kpp: b.kpp ?? null,
+              notes: null,
+              cadastral_number: b.cadastral_number ?? null,
+              area_sqm: b.area_sqm != null ? Number(b.area_sqm) : null,
+              floor: b.floor ?? null,
+              room_number: b.room_number ?? null,
+              object_purpose: b.object_purpose ?? null,
+              additional_address_info: b.additional_address_info ?? null,
+            })
+          }
+        }
+      }
+      return rows
+    },
+    enabled: licenses.length > 0,
+  })
+
+  useEffect(() => {
+    const stats: Record<string, WarehouseReadingStats> = {}
+    for (const w of warehouses) {
+      stats[w.id] = getWarehouseReadingStats(w.id)
+    }
+    setReadingStats(stats)
+  }, [warehouses])
+
+  useEffect(() => {
+    if (warehouses.length === 0) return
+    const syncAll = async () => {
+      for (const w of warehouses) {
+        await syncOfflineReadings(w.id)
+        void qc.invalidateQueries({ queryKey: ['storage-readings', w.id] })
+      }
+    }
+    void syncAll()
+
+    const onOnline = () => void syncAll()
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [warehouses, qc])
+
+  useEffect(() => {
+    if (!highlightWarehouseId) return
+    setCollapsedIds((prev) => {
+      const next = new Set(prev)
+      next.delete(highlightWarehouseId)
+      return next
+    })
+    const el = document.getElementById(`warehouse-${highlightWarehouseId}`)
+    if (el) {
+      window.setTimeout(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
+    }
+  }, [highlightWarehouseId])
+
+  const docsForWarehouse = (warehouseId: string, docType: WarehouseDocType) =>
+    clientDocs.find((d) => d.warehouse_id === warehouseId && d.doc_type === docType)
+
+  const opDocsForWarehouse = (warehouseId: string) =>
+    clientDocs.filter(
+      (d) => d.doc_type === 'op_notification' && d.warehouse_id === warehouseId,
+    )
+
+  const rentalForWarehouse = (warehouseId: string) =>
+    rentals.find((r) => r.warehouse_id === warehouseId)
+
+  const uploadKey = (warehouseId: string, docType: string) => `${warehouseId}:${docType}`
+
+  const toggleCollapsed = (warehouseId: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(warehouseId)) next.delete(warehouseId)
+      else next.add(warehouseId)
+      return next
+    })
+  }
+
+  const isCollapsed = (warehouseId: string) => collapsedIds.has(warehouseId)
+
+  const handleAddWarehouse = async () => {
+    if (!newName.trim()) return
+    setSaving(true)
+    try {
+      await upsertWarehouse({
+        client_id: clientId,
+        name: newName.trim(),
+      })
+      setNewName('')
+      setModalOpen(false)
+      void refetchWarehouses()
+    } catch (e) {
+      showToast(
+        e instanceof Error ? e.message : 'Не удалось сохранить склад',
+        'error',
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeleteWarehouse = async (w: WarehouseWithProducts) => {
+    setDeletingWarehouseId(w.id)
+    try {
+      await deleteWarehouse(w.id)
+      setConfirmDeleteWarehouseId(null)
+      void refetchWarehouses()
+      void qc.invalidateQueries({ queryKey: ['warehouses', clientId] })
+      onRefetchDocs()
+      showToast('Склад удалён')
+    } catch {
+      showToast('Ошибка удаления склада', 'error')
+    } finally {
+      setDeletingWarehouseId(null)
+    }
+  }
+
+  const handleSaveName = async (w: WarehouseWithProducts) => {
+    if (!editName.trim()) return
+    await upsertWarehouse({ ...w, name: editName.trim() })
+    setEditingId(null)
+    void refetchWarehouses()
+  }
+
+  const suggestKppForWarehouse = (
+    warehouseId: string,
+    kpp: string,
+    source: KppSuggestion['source'],
+  ) => {
+    const w = warehouses.find((x) => x.id === warehouseId)
+    if (!w || w.kpp || !kpp.trim()) return
+    setKppSuggestion({
+      warehouseId,
+      warehouseName: w.name,
+      kpp: kpp.trim(),
+      source,
+    })
+  }
+
+  const applyKppSuggestion = async () => {
+    if (!kppSuggestion) return
+    const w = warehouses.find((x) => x.id === kppSuggestion.warehouseId)
+    if (!w) return
+    await upsertWarehouse({ ...w, kpp: kppSuggestion.kpp })
+    setKppSuggestion(null)
+    void refetchWarehouses()
+  }
+
+  const applyEgrnToWarehouse = async (warehouseId: string, egrn: ParsedEGRN) => {
+    const w = warehouses.find((x) => x.id === warehouseId)
+    if (!w) return
+    await upsertWarehouse({
+      ...w,
+      address: egrn.address || w.address,
+      cadastral_number: egrn.cadastralNumber || w.cadastral_number,
+      area_sqm: egrn.area ? Number(String(egrn.area).replace(',', '.')) : w.area_sqm,
+    })
+    if (warehouses[0]?.id === warehouseId) {
+      onEgrnSummaryChange?.(egrn)
+    }
+    if (egrn.cadastralNumber && !w.kpp) {
+      const matchedKpp = findKppByCadastral(egrn.cadastralNumber, licenseAddresses)
+      if (matchedKpp) {
+        suggestKppForWarehouse(warehouseId, matchedKpp, 'egrn')
+      }
+    }
+    void qc.invalidateQueries({ queryKey: ['warehouses', clientId] })
+  }
+
+  const handleWarehouseUpload = async (
+    warehouseId: string,
+    docType: WarehouseDocType,
+    file: File,
+  ) => {
+    const key = uploadKey(warehouseId, docType)
+    setUploading((u) => ({ ...u, [key]: true }))
+    try {
+      if (docType === 'egrn') {
+        const result = await parseEGRNFile(file)
+        await uploadClientDocument(
+          clientId,
+          file,
+          'egrn',
+          result as unknown as Record<string, unknown>,
+          warehouseId,
+        )
+        await applyEgrnToWarehouse(warehouseId, result)
+      } else if (docType === 'rental') {
+        const result = await parseRentalFile(file)
+        await uploadClientDocument(
+          clientId,
+          file,
+          'rental',
+          result as unknown as Record<string, unknown>,
+          warehouseId,
+        )
+        if (!result.isProbablyScan) {
+          await saveRentalFromParsed(clientId, result, undefined, warehouseId)
+          const w = warehouses.find((x) => x.id === warehouseId)
+          if (w && (result.address || result.areaSqm)) {
+            await upsertWarehouse({
+              ...w,
+              address: result.address || w.address,
+              area_sqm: result.areaSqm ?? w.area_sqm,
+            })
+          }
+        }
+      } else {
+        const result = await parseTechPlanFile(file)
+        await uploadClientDocument(
+          clientId,
+          file,
+          'tech_plan',
+          result as unknown as Record<string, unknown>,
+          warehouseId,
+        )
+        const w = warehouses.find((x) => x.id === warehouseId)
+        if (w) {
+          await upsertWarehouse({
+            ...w,
+            cadastral_number: result.cadastralNumber ?? w.cadastral_number,
+            area_sqm: result.area ?? w.area_sqm,
+            floor: result.floor ?? w.floor,
+            room_number: result.roomNumber ?? w.room_number,
+            object_purpose: result.purpose ?? w.object_purpose,
+            address: result.address ?? w.address,
+          })
+          if (result.cadastralNumber && !w.kpp) {
+            const matchedKpp = findKppByCadastral(result.cadastralNumber, licenseAddresses)
+            if (matchedKpp) {
+              suggestKppForWarehouse(warehouseId, matchedKpp, 'egrn')
+            }
+          }
+        }
+      }
+      onRefetchDocs()
+      void refetchWarehouses()
+      void qc.invalidateQueries({ queryKey: ['rental-contracts', clientId] })
+    } finally {
+      setUploading((u) => ({ ...u, [key]: false }))
+    }
+  }
+
+  const handleClearDoc = async (doc: Document) => {
+    if (!window.confirm(`Удалить файл «${doc.filename}»?`)) return
+    await deleteClientDocument(doc)
+    onRefetchDocs()
+  }
+
+  const handleOpFile = async (warehouseId: string, file: File) => {
+    setOpLoadingWarehouseId(warehouseId)
+    try {
+      const parsed = await parseOPNotificationPdf(file)
+      setOpContext({ warehouseId, parsed, file })
+      setOpApplyKpp(true)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Ошибка парсинга')
+    } finally {
+      setOpLoadingWarehouseId(null)
+    }
+  }
+
+  const opTargetWarehouse = useMemo(() => {
+    if (!opContext?.parsed.kppOP) return null
+    const w = warehouses.find((x) => x.id === opContext.warehouseId)
+    if (!w || w.kpp) return null
+    return w
+  }, [opContext, warehouses])
+
+  const confirmOpNotification = async () => {
+    if (!opContext) return
+    const { warehouseId, parsed, file } = opContext
+    setOpLoadingWarehouseId(warehouseId)
+    try {
+      if (onConflictSource) {
+        onConflictSource(opNotificationToDataSource(parsed))
+      }
+
+      const w = warehouses.find((x) => x.id === warehouseId)
+      if (w) {
+        const updates: Partial<Warehouse> = {}
+        if (parsed.opAddress && !w.address) {
+          updates.address = parsed.opAddress
+        }
+        if (opApplyKpp && parsed.kppOP && !w.kpp) {
+          updates.kpp = parsed.kppOP
+        }
+        if (Object.keys(updates).length > 0) {
+          await upsertWarehouse({ ...w, ...updates })
+        }
+      }
+
+      await uploadClientDocument(
+        clientId,
+        file,
+        'op_notification',
+        parsed as unknown as Record<string, unknown>,
+        warehouseId,
+      )
+
+      setOpContext(null)
+      setOpApplyKpp(true)
+      onRefetchDocs()
+      void refetchWarehouses()
+    } finally {
+      setOpLoadingWarehouseId(null)
+    }
+  }
+
+  const docIcons: Record<WarehouseDocType, ReactNode> = {
+    egrn: <Map className="h-6 w-6 text-slate-400" />,
+    rental: <FileText className="h-6 w-6 text-slate-400" />,
+    tech_plan: <Upload className="h-6 w-6 text-slate-400" />,
+  }
+
+  const handleBulkExport = async () => {
+    if (warehouses.length === 0) return
+    setBulkExporting(true)
+    try {
+      const batches = await Promise.all(
+        warehouses.map(async (w) => ({
+          warehouseName: w.name,
+          readings: await fetchStorageReadings(w.id),
+        })),
+      )
+      const combined = batches.flatMap(({ warehouseName, readings }) =>
+        readings.map((reading) => ({ warehouseName, reading })),
+      )
+      if (combined.length === 0) {
+        showToast('Нет данных для экспорта')
+        return
+      }
+      combined.sort((a, b) => b.reading.recorded_at.localeCompare(a.reading.recorded_at))
+      const csv = buildBulkStorageCsv(combined)
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `Журнал_хранения_все_склады_${format(new Date(), 'yyyy-MM-dd')}.csv`
+      link.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setBulkExporting(false)
+    }
+  }
+
+  return (
+    <>
+    <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4 overflow-x-hidden">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 font-semibold text-slate-900">
+          <Factory className="h-5 w-5 text-brand-600" />
+          Складские помещения
+        </h2>
+        <div className="flex items-center gap-2 shrink-0">
+          {warehouses.length > 0 && (
+            <button
+              type="button"
+              disabled={bulkExporting}
+              onClick={() => void handleBulkExport()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {bulkExporting && <Loader2 className="h-4 w-4 animate-spin" />}
+              📥 Экспорт всех журналов
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-1 min-h-[44px] rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 hover:bg-brand-100"
+          >
+            <Plus className="h-4 w-4" />
+            Добавить склад
+          </button>
+        </div>
+      </div>
+
+      {kppSuggestion && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-2">
+          <p className="text-amber-900">
+            Установить КПП <span className="font-mono font-medium">{kppSuggestion.kpp}</span> для
+            склада «{kppSuggestion.warehouseName}»?
+            {kppSuggestion.source === 'egrn' && (
+              <span className="block text-xs text-amber-700 mt-0.5">
+                Найдено по кадастровому номеру в реестре лицензий
+              </span>
+            )}
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => void applyKppSuggestion()}
+              className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs text-white hover:bg-brand-700"
+            >
+              Установить
+            </button>
+            <button
+              type="button"
+              onClick={() => setKppSuggestion(null)}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs"
+            >
+              Пропустить
+            </button>
+          </div>
+        </div>
+      )}
+
+      {warehousesError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          Ошибка загрузки складов. Проверьте подключение к базе данных.
+          <br />
+          <code className="text-xs">{warehousesErrorMessage}</code>
+        </div>
+      ) : warehousesLoading ? (
+        <div className="grid gap-4 sm:grid-cols-2 animate-pulse">
+          <div className="h-40 rounded-xl bg-slate-200" />
+          <div className="h-40 rounded-xl bg-slate-200" />
+        </div>
+      ) : warehouses.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 py-16 px-6 text-center">
+          <p className="text-4xl mb-4" aria-hidden>
+            🏭
+          </p>
+          <h3 className="text-lg font-semibold text-slate-900">Нет складов</h3>
+          <p className="mt-2 text-sm text-slate-500 max-w-sm mx-auto">
+            Добавьте склад для отслеживания условий хранения
+          </p>
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="mt-6 inline-flex items-center justify-center min-h-[44px] rounded-lg bg-brand-600 px-5 text-sm font-medium text-white hover:bg-brand-700"
+          >
+            Добавить склад
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {warehouses.map((w) => {
+            const rental = rentalForWarehouse(w.id)
+            const displayAddress = w.address || rental?.address || '—'
+            const displayKpp = w.kpp || '—'
+            const displayArea =
+              w.area_sqm != null ? `${w.area_sqm} кв.м` : '—'
+            const collapsed = isCollapsed(w.id)
+            const productTypes = parseProductTypes(w.product_types)
+            const safeRange = computeSafeRange(productTypes)
+
+            return (
+              <div
+                key={w.id}
+                id={`warehouse-${w.id}`}
+                className={`rounded-lg border bg-slate-50/50 overflow-hidden scroll-mt-24 ${
+                  highlightWarehouseId === w.id
+                    ? 'border-brand-400 ring-2 ring-brand-200'
+                    : 'border-slate-200'
+                }`}
+              >
+                <div className="p-4 space-y-2">
+                  {confirmDeleteWarehouseId === w.id ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-slate-700">
+                        Удалить склад? Все документы и журнал будут удалены.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={deletingWarehouseId === w.id}
+                          onClick={() => void handleDeleteWarehouse(w)}
+                          className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                        >
+                          Да, удалить
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingWarehouseId === w.id}
+                          onClick={() => setConfirmDeleteWarehouseId(null)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      {editingId === w.id ? (
+                        <div className="flex gap-2">
+                          <input
+                            className="rounded-md border border-slate-300 px-2 py-1 text-sm font-medium"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void handleSaveName(w)
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="text-brand-600 text-sm"
+                            onClick={() => void handleSaveName(w)}
+                          >
+                            OK
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="font-semibold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                          <Factory className="h-4 w-4 text-brand-600 shrink-0" />
+                          <span>Склад «{displayWarehouseName(w.name)}»</span>
+                          {readingStats[w.id] && (
+                            <span className="inline-flex items-center gap-1.5 font-normal">
+                              {readingStats[w.id].stale24h && (
+                                <span
+                                  className="h-2 w-2 rounded-full bg-orange-500 shrink-0"
+                                  title="Последняя запись старше 24 ч"
+                                />
+                              )}
+                              {readingStats[w.id].count30 === 0 ? (
+                                <span className="text-xs text-slate-400">нет записей</span>
+                              ) : (
+                                <span className="text-xs text-slate-600 bg-slate-200 rounded-full px-2 py-0.5">
+                                  {readingStats[w.id].count30} записей
+                                </span>
+                              )}
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+                        <SummaryField label="КПП" value={displayKpp} />
+                        <SummaryField label="Адрес" value={displayAddress} />
+                        <SummaryField label="Площадь" value={displayArea} />
+                      </div>
+                      {!collapsed && (w.cadastral_number || rental?.rent_end) && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          {w.cadastral_number && <>КН: {w.cadastral_number}</>}
+                          {w.cadastral_number && rental?.rent_end && ' · '}
+                          {rental?.rent_end && (
+                            <>
+                              Аренда до{' '}
+                              {format(parseISO(rental.rent_end), 'dd.MM.yyyy', { locale: ru })}
+                            </>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => toggleCollapsed(w.id)}
+                        className="inline-flex items-center gap-0.5 rounded px-2 py-1 text-xs text-slate-600 hover:bg-white"
+                      >
+                        {collapsed ? (
+                          <>
+                            <ChevronDown className="h-3.5 w-3.5" />
+                            развернуть
+                          </>
+                        ) : (
+                          <>
+                            <ChevronUp className="h-3.5 w-3.5" />
+                            свернуть
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-1.5 text-slate-500 hover:bg-white"
+                        title="Редактировать название"
+                        onClick={() => {
+                          setEditingId(w.id)
+                          setEditName(w.name)
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600"
+                        title="Удалить склад"
+                        onClick={() => setConfirmDeleteWarehouseId(w.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  )}
+                </div>
+
+                {!collapsed && confirmDeleteWarehouseId !== w.id && (
+                  <div className="border-t border-slate-200 px-4 pb-4 pt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                      {(['egrn', 'rental', 'tech_plan'] as WarehouseDocType[]).map(
+                        (docType) => {
+                          const meta = WAREHOUSE_DOC_META[docType]
+                          const doc = docsForWarehouse(w.id, docType)
+                          const key = uploadKey(w.id, docType)
+                          const loading = uploading[key]
+                          return (
+                            <WarehouseUploadZone
+                              key={docType}
+                              title={meta.title}
+                              subtitle={meta.subtitle}
+                              accept={meta.accept}
+                              formats={meta.formats}
+                              icon={docIcons[docType]}
+                              fileName={doc?.filename ?? null}
+                              loading={loading}
+                              onFile={(f) => void handleWarehouseUpload(w.id, docType, f)}
+                              onClear={() => {
+                                if (doc) void handleClearDoc(doc)
+                              }}
+                            />
+                          )
+                        },
+                      )}
+                      <WarehouseOpUploadZone
+                        loading={opLoadingWarehouseId === w.id}
+                        notifications={opDocsForWarehouse(w.id)}
+                        onFile={(f) => void handleOpFile(w.id, f)}
+                        onRemove={(doc) => void handleClearDoc(doc)}
+                      />
+                    </div>
+
+                    <StorageStandardsCard
+                      warehouse={w}
+                      onSaveProductTypes={async (types) => {
+                        await upsertWarehouse({ ...w, product_types: types })
+                        void refetchWarehouses()
+                      }}
+                    />
+
+                    <StorageComplianceChecklist
+                      warehouseId={w.id}
+                      warehouseName={w.name}
+                      productTypes={productTypes}
+                    />
+
+                    <StorageJournal
+                      warehouseId={w.id}
+                      clientId={clientId}
+                      warehouseName={w.name}
+                      safeRange={safeRange}
+                    />
+
+                    {opContext?.warehouseId === w.id && (
+                      <div className="rounded-lg border border-brand-200 bg-brand-50/50 p-4 space-y-3 text-sm">
+                        <p className="font-medium text-slate-800">
+                          Подтвердите данные уведомления
+                        </p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <label className="block">
+                            <span className="text-slate-600">КПП ОП</span>
+                            <input
+                              className="mt-1 w-full rounded border border-slate-300 px-2 py-1"
+                              value={opContext.parsed.kppOP}
+                              onChange={(e) =>
+                                setOpContext({
+                                  ...opContext,
+                                  parsed: { ...opContext.parsed, kppOP: e.target.value },
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="text-slate-600">Дата постановки</span>
+                            <input
+                              className="mt-1 w-full rounded border border-slate-300 px-2 py-1"
+                              value={opContext.parsed.registrationDate ?? ''}
+                              onChange={(e) =>
+                                setOpContext({
+                                  ...opContext,
+                                  parsed: {
+                                    ...opContext.parsed,
+                                    registrationDate: e.target.value,
+                                  },
+                                })
+                              }
+                            />
+                          </label>
+                        </div>
+                        <label className="block">
+                          <span className="text-slate-600">Адрес ОП</span>
+                          <textarea
+                            className="mt-1 w-full rounded border border-slate-300 px-2 py-1"
+                            rows={2}
+                            value={opContext.parsed.opAddress}
+                            onChange={(e) =>
+                              setOpContext({
+                                ...opContext,
+                                parsed: { ...opContext.parsed, opAddress: e.target.value },
+                              })
+                            }
+                          />
+                        </label>
+                        {opTargetWarehouse && opContext.parsed.kppOP && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm text-amber-900">
+                            <label className="flex items-start gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="mt-1"
+                                checked={opApplyKpp}
+                                onChange={(e) => setOpApplyKpp(e.target.checked)}
+                              />
+                              <span>
+                                Установить КПП{' '}
+                                <span className="font-mono font-medium">
+                                  {opContext.parsed.kppOP}
+                                </span>{' '}
+                                для склада «{displayWarehouseName(opTargetWarehouse.name)}»?
+                              </span>
+                            </label>
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={opLoadingWarehouseId === w.id}
+                            onClick={() => void confirmOpNotification()}
+                            className="rounded-lg bg-brand-600 px-4 py-2 text-sm text-white hover:bg-brand-700 disabled:opacity-50"
+                          >
+                            Подтвердить
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpContext(null)
+                              setOpApplyKpp(true)
+                            }}
+                            className="rounded-lg border border-slate-300 px-4 py-2 text-sm"
+                          >
+                            Отмена
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onClick={() => {
+            setModalOpen(false)
+            setNewName('')
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900">Добавить склад</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setModalOpen(false)
+                  setNewName('')
+                }}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md hover:bg-slate-100"
+                aria-label="Закрыть"
+              >
+                <X className="h-5 w-5 text-slate-400" />
+              </button>
+            </div>
+            <label className="block text-sm">
+              <span className="text-slate-600">Название склада *</span>
+              <input
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="например: Склад Внуково"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newName.trim()) void handleAddWarehouse()
+                }}
+              />
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={saving || !newName.trim()}
+                onClick={() => void handleAddWarehouse()}
+                className="flex-1 min-h-[44px] rounded-lg bg-brand-600 py-2 text-sm text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                {saving ? 'Сохранение…' : 'Создать'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setModalOpen(false)
+                  setNewName('')
+                }}
+                className="flex-1 min-h-[44px] rounded-lg border border-slate-300 py-2 text-sm"
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+
+    <RegistryBlock clientInn={clientInn} />
+    </>
+  )
+}
