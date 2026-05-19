@@ -35,6 +35,11 @@ import {
 } from '../lib/conflictMappers'
 import { useDocumentConflicts } from '../hooks/useDocumentConflicts'
 import { ConflictTable } from './ConflictTable'
+import {
+  egrylParsedToFields,
+  licenseParsedToFields,
+} from '../lib/conflictSourceData'
+import type { DetectConflictsParams } from '../lib/conflictDetector'
 import { ApplicationVerification } from './ApplicationVerification'
 import { LicenseOperationFields, type ClientRequisitesFormState, type LicenseExtendedFormState } from './ClientRequisitesForm'
 import { WarehouseDocumentsSection } from './WarehouseDocumentsSection'
@@ -153,6 +158,7 @@ interface ClientDocumentsTabProps {
   licenseOperationType: 'ПРОДЛЕНИЕ' | 'ПЕРЕОФОРМЛЕНИЕ' | null
   onSuggestChecklist?: (operation: OperationType) => void
   onApplied: () => void
+  onConflictAfterUpload?: (params: DetectConflictsParams) => Promise<void>
   highlightWarehouseId?: string | null
 }
 
@@ -168,6 +174,7 @@ export function ClientDocumentsTab({
   licenseOperationType,
   onSuggestChecklist,
   onApplied,
+  onConflictAfterUpload,
   highlightWarehouseId,
 }: ClientDocumentsTabProps) {
   const qc = useQueryClient()
@@ -243,6 +250,11 @@ export function ClientDocumentsTab({
         setEgrylForm((prev) => mergedToEgrylForm(merged, { ...prev, ...result })),
       )
       await uploadClientDocument(clientId, file, 'egryl', { client: result.client, license: result.license })
+      await onConflictAfterUpload?.({
+        clientId,
+        newData: egrylParsedToFields(result),
+        newSource: 'egryl',
+      })
       setZone('egryl', { loading: false, uploaded: true })
       void refetchDocs()
     } catch (e) {
@@ -264,6 +276,11 @@ export function ClientDocumentsTab({
         setLicenseForm((prev) => mergedToLicenseForm(merged, { ...prev, ...result })),
       )
       await uploadClientDocument(clientId, file, 'license', result as unknown as Record<string, unknown>)
+      await onConflictAfterUpload?.({
+        clientId,
+        newData: licenseParsedToFields(result),
+        newSource: 'license',
+      })
       setZone('license', { loading: false, uploaded: true })
       void refetchDocs()
     } catch (e) {
@@ -496,6 +513,7 @@ export function ClientDocumentsTab({
         }}
         onClientRefetch={onApplied}
         onConflictSource={(source) => addSource(source)}
+        onConflictAfterUpload={onConflictAfterUpload}
         onEgrnSummaryChange={(egrn) => {
           if (egrn) setEgrnForm({ ...EMPTY_EGRN, ...egrn })
         }}

@@ -1,7 +1,6 @@
 import {
   assignValuesToPair,
   buildSourceSnapshotsFromDocs,
-  canonicalSourcePair,
   fieldsForScope,
   pickPriorityValue,
   type ConflictField,

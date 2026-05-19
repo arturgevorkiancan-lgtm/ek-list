@@ -193,15 +193,15 @@ function parseDocFields(
   }
 
   if (source === 'license') {
-    return licenseParsedToFields(data as ParsedLicenseData)
+    return licenseParsedToFields(data as unknown as ParsedLicenseData)
   }
 
   if (source === 'egrn') {
-    return egrnParsedToFields(data as ParsedEGRN)
+    return egrnParsedToFields(data as unknown as ParsedEGRN)
   }
 
   if (source === 'techplan') {
-    return techPlanParsedToFields(data as ParsedTechPlanData)
+    return techPlanParsedToFields(data as unknown as ParsedTechPlanData)
   }
 
   if (warehouse) return warehouseToFields(warehouse)

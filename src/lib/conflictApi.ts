@@ -1,11 +1,8 @@
 import {
-  assignValuesToPair,
-  canonicalSourcePair,
   DEFAULT_SOURCE_PRIORITY,
   type ConflictField,
   type ConflictSourceKey,
 } from './conflictSourceData'
-import { getConflictLevel } from './conflictLevels'
 import { isSupabaseConfigured, supabase } from './supabase'
 import { localStore, uid } from './localStore'
 import type { Client, DataConflict, License, SourcePriority, Warehouse } from '../types'
@@ -50,27 +47,8 @@ export async function fetchUnresolvedConflictCount(clientId: string): Promise<nu
   return rows.length
 }
 
-function findExistingConflict(
-  list: DataConflict[],
-  clientId: string,
-  warehouseId: string | null,
-  field: string,
-  sourceA: ConflictSourceKey,
-  sourceB: ConflictSourceKey,
-): DataConflict | undefined {
-  const { sourceA: canonA, sourceB: canonB } = canonicalSourcePair(sourceA, sourceB)
-  return list.find(
-    (c) =>
-      c.client_id === clientId &&
-      (c.warehouse_id ?? null) === warehouseId &&
-      c.field === field &&
-      c.source_a === canonA &&
-      c.source_b === canonB,
-  )
-}
-
 export async function upsertDataConflict(
-  payload: Omit<DataConflict, 'id' | 'created_at'> & { id?: string },
+  payload: Omit<DataConflict, 'id'> & { id?: string },
 ): Promise<DataConflict> {
   const row: DataConflict = {
     id: payload.id ?? uid(),
@@ -86,7 +64,7 @@ export async function upsertDataConflict(
     resolved: payload.resolved,
     resolved_at: payload.resolved_at,
     resolution_comment: payload.resolution_comment,
-    created_at: payload.created_at ?? new Date().toISOString(),
+    created_at: payload.created_at,
   }
 
   if (isSupabaseConfigured && supabase) {
@@ -302,5 +280,3 @@ export async function loadConflictContext(clientId: string, warehouseId?: string
     : null
   return { client, license: licenses[0] ?? null, docs, warehouse }
 }
-
-export { assignValuesToPair }

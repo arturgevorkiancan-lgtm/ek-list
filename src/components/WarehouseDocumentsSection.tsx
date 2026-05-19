@@ -66,7 +66,12 @@ import {
   type WarehouseReadingStats,
 } from '../lib/warehouseReadingStats'
 import { opNotificationToDataSource } from '../lib/conflictMappers'
-import type { DataSource } from '../lib/conflictDetector'
+import type { DataSource, DetectConflictsParams } from '../lib/conflictDetector'
+import {
+  egrnParsedToFields,
+  techPlanParsedToFields,
+  warehouseDocFieldsToMap,
+} from '../lib/conflictSourceData'
 import type {
   Document,
   LicenseAddress,
@@ -110,6 +115,7 @@ interface WarehouseDocumentsSectionProps {
   onRequisitesUpdated?: (patch: Partial<ClientRequisitesSnapshot>) => void
   onClientRefetch?: () => void
   onConflictSource?: (source: DataSource) => void
+  onConflictAfterUpload?: (params: DetectConflictsParams) => Promise<void>
   onEgrnSummaryChange?: (egrn: ParsedEGRN | null) => void
   highlightWarehouseId?: string | null
 }
@@ -460,6 +466,7 @@ export function WarehouseDocumentsSection({
   onRequisitesUpdated,
   onClientRefetch,
   onConflictSource,
+  onConflictAfterUpload,
   onEgrnSummaryChange,
   highlightWarehouseId,
 }: WarehouseDocumentsSectionProps) {
@@ -759,6 +766,12 @@ export function WarehouseDocumentsSection({
           result as unknown as Record<string, unknown>,
           warehouseId,
         )
+        await onConflictAfterUpload?.({
+          clientId,
+          warehouseId,
+          newData: egrnParsedToFields(result),
+          newSource: 'egrn',
+        })
         await applyEgrnToWarehouse(warehouseId, result)
       } else if (docType === 'rental') {
         const result = await parseRentalFile(file)
@@ -789,6 +802,12 @@ export function WarehouseDocumentsSection({
           result as unknown as Record<string, unknown>,
           warehouseId,
         )
+        await onConflictAfterUpload?.({
+          clientId,
+          warehouseId,
+          newData: techPlanParsedToFields(result),
+          newSource: 'techplan',
+        })
         const w = warehouses.find((x) => x.id === warehouseId)
         if (w) {
           await upsertWarehouse({
@@ -843,6 +862,19 @@ export function WarehouseDocumentsSection({
     if (!dataUpdateModal) return
     setDataUpdateSaving(true)
     try {
+      const docFields = warehouseDocFieldsToMap(dataUpdateModal.parsed)
+      const source =
+        dataUpdateModal.parsed.cadastral_number && dataUpdateModal.parsed.floor != null
+          ? 'techplan'
+          : 'egrn'
+      if (Object.keys(docFields).length > 0) {
+        await onConflictAfterUpload?.({
+          clientId,
+          warehouseId: dataUpdateModal.warehouse.id,
+          newData: docFields,
+          newSource: source,
+        })
+      }
       await upsertWarehouse({ ...dataUpdateModal.warehouse, ...patch })
       setDataUpdateModal(null)
       showToast('Данные склада обновлены')
@@ -971,6 +1003,7 @@ export function WarehouseDocumentsSection({
         onRefetchDocs={onRefetchDocs}
         onRequisitesUpdated={onRequisitesUpdated}
         onClientRefetch={onClientRefetch}
+        onConflictAfterUpload={onConflictAfterUpload}
       />
 
       <div className="flex items-center justify-between gap-3">

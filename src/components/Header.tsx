@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Bell, BellOff, ClipboardList, HelpCircle, Search, X } from 'lucide-react'
 import { isSupabaseConfigured } from '../lib/supabase'
@@ -13,6 +13,9 @@ import {
   type PushPermissionState,
 } from '../lib/push'
 import { fetchClients, fetchChecklists, fetchLicenses } from '../lib/api'
+import { fetchUnresolvedConflictCount } from '../lib/conflictApi'
+import { ConflictBadge } from './ConflictBadge'
+import { dispatchOpenConflictsModal } from '../hooks/useDataConflicts'
 import { getLicenseExpiryStatus } from '../lib/licenseUtils'
 import { getRecentClientIds } from '../hooks/useRecentClients'
 import { navigateToClientsList } from '../lib/navigation'
@@ -32,6 +35,7 @@ const SHORTCUTS = [
 
 export function Header({ notificationCount = 0, breadcrumb }: HeaderProps) {
   const navigate = useNavigate()
+  const { id: routeClientId } = useParams<{ id: string }>()
   const { user, signOut } = useAuth()
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -111,6 +115,12 @@ export function Header({ notificationCount = 0, breadcrumb }: HeaderProps) {
     enabled: switcherOpen,
   })
 
+  const { data: conflictCount = 0 } = useQuery({
+    queryKey: ['data-conflicts-count', routeClientId],
+    queryFn: () => fetchUnresolvedConflictCount(routeClientId!),
+    enabled: !!routeClientId,
+  })
+
   const clientsWithMeta: ClientWithMeta[] = clients.map((client) => {
     const clientLicenses = licenses
       .filter((l) => l.client_id === client.id)
@@ -170,6 +180,14 @@ export function Header({ notificationCount = 0, breadcrumb }: HeaderProps) {
               <span className="mx-2 text-slate-300">/</span>
               <span className="font-medium text-slate-900">{breadcrumb}</span>
             </div>
+          )}
+
+          {routeClientId && conflictCount > 0 && (
+            <ConflictBadge
+              count={conflictCount}
+              onClick={() => dispatchOpenConflictsModal(routeClientId)}
+              className="shrink-0"
+            />
           )}
 
           <button

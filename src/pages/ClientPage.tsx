@@ -25,7 +25,12 @@ import {
   createChecklist,
 } from '../lib/api'
 import { addRecentClient } from '../hooks/useRecentClients'
+import { useDataConflicts } from '../hooks/useDataConflicts'
 import { useToast } from '../context/ToastContext'
+import { ConflictBadge } from '../components/ConflictBadge'
+import { ConflictResolutionModal } from '../components/ConflictResolutionModal'
+import { runConflictDetectionAfterUpload } from '../lib/conflictUpload'
+import type { DetectConflictsParams } from '../lib/conflictDetector'
 import { OPERATION_LABELS } from '../data/checklistItems'
 import type { LicenseAddressJson, OperationType, ProductTypeFlag } from '../types'
 import { setDiagnosticsClientName } from '../lib/diagnostics'
@@ -38,6 +43,7 @@ export function ClientPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { showToast } = useToast()
+  const dataConflicts = useDataConflicts(id)
   const [tab, setTab] = useState<Tab>('overview')
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -290,10 +296,31 @@ export function ClientPage() {
     setTab('documents')
   }
 
+  const handleConflictAfterUpload = async (params: DetectConflictsParams) => {
+    if (!id) return
+    const result = await runConflictDetectionAfterUpload({
+      ...params,
+      clientId: id,
+    })
+    await dataConflicts.refresh()
+    if (result.reopenedResolved > 0) {
+      showToast('Подтверждённое значение изменилось — проверьте', 'error')
+    }
+    if (result.hasUnresolved) {
+      dataConflicts.openModal(params.warehouseId ?? null)
+    }
+  }
+
   return (
     <>
       <Header breadcrumb={client.name} />
       <main className="mx-auto max-w-6xl px-4 py-6 space-y-6 overflow-x-hidden">
+        {dataConflicts.unresolvedCount > 0 && (
+          <ConflictBadge
+            count={dataConflicts.unresolvedCount}
+            onClick={() => dataConflicts.openModal()}
+          />
+        )}
         <div className="-mx-4 px-4 overflow-x-auto">
           <div className="flex border-b border-slate-200 -mb-2 min-w-max sm:min-w-0 whitespace-nowrap">
             {tabs.map((t) => (
@@ -340,6 +367,7 @@ export function ClientPage() {
               setChecklistModalOp(op)
               setModalOpen(true)
             }}
+            onConflictAfterUpload={handleConflictAfterUpload}
             onApplied={async () => {
               await qc.invalidateQueries({ queryKey: ['client', id] })
               await qc.invalidateQueries({ queryKey: ['licenses', id] })
@@ -541,6 +569,16 @@ export function ClientPage() {
           setChecklistModalOp(undefined)
         }}
       />
+
+      {id && (
+        <ConflictResolutionModal
+          open={dataConflicts.modalOpen}
+          clientId={id}
+          conflicts={dataConflicts.conflicts}
+          onClose={dataConflicts.closeModal}
+          onResolve={dataConflicts.resolve}
+        />
+      )}
     </>
   )
 }

@@ -41,6 +41,11 @@ import {
 import { uid } from './lib/localStore'
 import { navigateToClientsList } from './lib/clientNavigation'
 import { useToast } from './context/ToastContext'
+import { useDataConflicts } from './hooks/useDataConflicts'
+import { ConflictBadge } from './components/ConflictBadge'
+import { ConflictResolutionModal } from './components/ConflictResolutionModal'
+import { runConflictDetectionAfterUpload } from './lib/conflictUpload'
+import type { DetectConflictsParams } from './lib/conflictDetector'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -167,6 +172,7 @@ function ClientWorkspace() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { showToast } = useToast()
+  const dataConflicts = useDataConflicts(id)
   const settingsRef = useRef<HTMLDivElement>(null)
   const [activeTab, setActiveTab] = useState<ClientTab>('overview')
   const [highlightWarehouseId, setHighlightWarehouseId] = useState<string | null>(null)
@@ -322,6 +328,21 @@ function ClientWorkspace() {
     }, 100)
   }
 
+  const handleConflictAfterUpload = async (params: DetectConflictsParams) => {
+    if (!id) return
+    const result = await runConflictDetectionAfterUpload({
+      ...params,
+      clientId: id,
+    })
+    await dataConflicts.refresh()
+    if (result.reopenedResolved > 0) {
+      showToast('Подтверждённое значение изменилось — проверьте', 'error')
+    }
+    if (result.hasUnresolved) {
+      dataConflicts.openModal(params.warehouseId ?? null)
+    }
+  }
+
   if (clientLoading) {
     return (
       <>
@@ -353,6 +374,12 @@ function ClientWorkspace() {
     <>
       <Header />
       <main className="mx-auto max-w-6xl px-4 py-6 space-y-4 overflow-x-hidden">
+        {dataConflicts.unresolvedCount > 0 && (
+          <ConflictBadge
+            count={dataConflicts.unresolvedCount}
+            onClick={() => dataConflicts.openModal()}
+          />
+        )}
         <div className="flex items-start justify-between gap-3">
           <nav className="text-sm text-slate-600 min-w-0">
             <button
@@ -496,10 +523,21 @@ function ClientWorkspace() {
               void qc.invalidateQueries({ queryKey: ['client', id] })
               void qc.invalidateQueries({ queryKey: ['clients'] })
             }}
+            onConflictAfterUpload={handleConflictAfterUpload}
             highlightWarehouseId={highlightWarehouseId}
           />
         )}
       </main>
+
+      {id && (
+        <ConflictResolutionModal
+          open={dataConflicts.modalOpen}
+          clientId={id}
+          conflicts={dataConflicts.conflicts}
+          onClose={dataConflicts.closeModal}
+          onResolve={dataConflicts.resolve}
+        />
+      )}
 
       <EditClientModal
         open={editClientOpen}

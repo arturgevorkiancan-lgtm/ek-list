@@ -10,6 +10,8 @@ import {
   type ClientRequisitesSnapshot,
 } from '../lib/egrylRequisites'
 import { uploadClientDocument, upsertClient } from '../lib/api'
+import { egrylParsedToFields } from '../lib/conflictSourceData'
+import type { DetectConflictsParams } from '../lib/conflictDetector'
 import type { Document } from '../types'
 
 interface OrganizationEgrylBlockProps {
@@ -19,6 +21,7 @@ interface OrganizationEgrylBlockProps {
   onRefetchDocs: () => void
   onRequisitesUpdated?: (patch: Partial<ClientRequisitesSnapshot>) => void
   onClientRefetch?: () => void
+  onConflictAfterUpload?: (params: DetectConflictsParams) => Promise<void>
 }
 
 export function OrganizationEgrylBlock({
@@ -28,6 +31,7 @@ export function OrganizationEgrylBlock({
   onRefetchDocs,
   onRequisitesUpdated,
   onClientRefetch,
+  onConflictAfterUpload,
 }: OrganizationEgrylBlockProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(false)
@@ -47,6 +51,11 @@ export function OrganizationEgrylBlock({
       await uploadClientDocument(clientId, file, 'egryl', {
         client: result.client,
         license: result.license,
+      })
+      await onConflictAfterUpload?.({
+        clientId,
+        newData: egrylParsedToFields(result),
+        newSource: 'egryl',
       })
       onRefetchDocs()
 
