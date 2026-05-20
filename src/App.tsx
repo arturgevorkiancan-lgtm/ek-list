@@ -42,6 +42,7 @@ import { ConflictBadge } from './components/ConflictBadge'
 import { ConflictResolutionModal } from './components/ConflictResolutionModal'
 import { runConflictDetectionAfterUpload } from './lib/conflictUpload'
 import type { DetectConflictsParams } from './lib/conflictDetector'
+import type { License } from './types'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -178,6 +179,7 @@ function ClientWorkspace() {
   const [editClientOpen, setEditClientOpen] = useState(false)
   const [savingClient, setSavingClient] = useState(false)
   const [licenseModalOpen, setLicenseModalOpen] = useState(false)
+  const [editingLicense, setEditingLicense] = useState<License | null>(null)
   const [savingLicense, setSavingLicense] = useState(false)
 
   const { data: client, isLoading: clientLoading } = useQuery({
@@ -269,11 +271,12 @@ function ClientWorkspace() {
     if (!id) return
     setSavingLicense(true)
     try {
-      const existing = licenses[0]
+      const licenseNumber = form.license_number.trim()
+      const existing = licenses.find((l) => l.license_number === licenseNumber)
       await upsertLicense({
         id: existing?.id ?? uid(),
         client_id: id,
-        license_number: form.license_number.trim() || null,
+        license_number: licenseNumber || null,
         issue_date: form.issue_date || null,
         expiry_date: form.expiry_date || null,
         license_type: form.license_type || null,
@@ -282,7 +285,9 @@ function ClientWorkspace() {
         addresses: existing?.addresses ?? [],
       })
       await qc.invalidateQueries({ queryKey: ['licenses', id] })
+      await qc.invalidateQueries({ queryKey: ['licenses'] })
       setLicenseModalOpen(false)
+      setEditingLicense(null)
       showToast('Лицензия сохранена')
     } catch {
       showToast('Ошибка сохранения лицензии', 'error')
@@ -486,7 +491,13 @@ function ClientWorkspace() {
               licenses={licenses}
               warehouses={warehouses}
               onWarehouseSelect={handleWarehouseSelect}
-              onEditLicense={() => setLicenseModalOpen(true)}
+              onEditLicense={() => {
+                const latest = [...licenses].sort((a, b) =>
+                  (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''),
+                )[0] ?? null
+                setEditingLicense(latest)
+                setLicenseModalOpen(true)
+              }}
               onLicenseUpdated={() => qc.invalidateQueries({ queryKey: ['licenses', id] })}
             />
           )
@@ -544,10 +555,13 @@ function ClientWorkspace() {
       />
       <AddLicenseModal
         open={licenseModalOpen}
-        license={licenses[0] ?? null}
+        license={editingLicense}
         clientInn={client.inn}
         saving={savingLicense}
-        onClose={() => setLicenseModalOpen(false)}
+        onClose={() => {
+          setLicenseModalOpen(false)
+          setEditingLicense(null)
+        }}
         onSave={handleSaveLicense}
       />
     </>

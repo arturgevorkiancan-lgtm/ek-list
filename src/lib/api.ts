@@ -169,7 +169,7 @@ export async function upsertLicense(license: Partial<License> & { client_id: str
   if (isSupabaseConfigured && supabase) {
     const { data, error } = await supabase
       .from('licenses')
-      .upsert(record, { onConflict: 'client_id' })
+      .upsert(record, { onConflict: 'client_id,license_number' })
       .select()
       .single()
     if (error) throw error

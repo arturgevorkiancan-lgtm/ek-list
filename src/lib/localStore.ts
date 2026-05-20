@@ -58,11 +58,21 @@ export const localStore = {
   getLicenses: () => read<License>(KEYS.licenses),
   saveLicense: (license: License) => {
     const list = read<License>(KEYS.licenses)
-    const idx = list.findIndex((l) => l.id === license.id)
-    if (idx >= 0) list[idx] = license
-    else list.push(license)
+    const idx =
+      license.license_number != null
+        ? list.findIndex(
+            (l) =>
+              l.client_id === license.client_id &&
+              l.license_number === license.license_number,
+          )
+        : list.findIndex((l) => l.id === license.id)
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...license, id: list[idx].id }
+    } else {
+      list.push(license)
+    }
     write(KEYS.licenses, list)
-    return license
+    return idx >= 0 ? list[idx] : license
   },
 
   getLicenseAddresses: (licenseId: string) =>
