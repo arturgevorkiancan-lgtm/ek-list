@@ -3,11 +3,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
+  AlertCircle,
   BookOpen,
   Check,
+  CheckCircle,
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  Circle,
   Factory,
   FileText,
   Loader2,
@@ -19,6 +22,7 @@ import {
   Upload,
   Warehouse as WarehouseIcon,
   X,
+  XCircle,
 } from 'lucide-react'
 import {
   EGRUL_WAREHOUSE_ADDRESS_CLEANUP_SQL,
@@ -70,6 +74,13 @@ import {
   getWarehouseReadingStats,
   type WarehouseReadingStats,
 } from '../lib/warehouseReadingStats'
+import {
+  COMPLIANCE_TOTAL,
+  countComplianceDone,
+  getWarehouseComplianceBadge,
+  WAREHOUSE_COMPLIANCE_CHANGED,
+  type WarehouseComplianceBadge,
+} from '../lib/warehouseCompliance'
 import { opNotificationToDataSource } from '../lib/conflictMappers'
 import type { DataSource, DetectConflictsParams } from '../lib/conflictDetector'
 import {
@@ -376,35 +387,6 @@ const WAREHOUSE_SECTIONS: WarehouseSectionId[] = [
   'gost',
 ]
 
-const COMPLIANCE_TOTAL = 14
-
-const COMPLIANCE_ITEM_IDS = [
-  'thermometer',
-  'hygrometer',
-  'journal_kept',
-  'pallets',
-  'wall_distance',
-  'aisle_width',
-  'no_sunlight',
-  'ventilation_ok',
-  'fire_alarm',
-  'security_alarm',
-  'temp_in_range',
-  'humidity_in_range',
-  'no_foreign_smell',
-  'egais_connected',
-] as const
-
-function countComplianceDone(warehouseId: string): number {
-  try {
-    const raw = localStorage.getItem(`compliance_${warehouseId}`)
-    const state = raw ? (JSON.parse(raw) as Record<string, { status?: string }>) : {}
-    return Object.values(state).filter((x) => x.status === 'done').length
-  } catch {
-    return 0
-  }
-}
-
 function getLatestJournalLabel(warehouseId: string): string {
   try {
     const raw = localStorage.getItem(`storage_readings_${warehouseId}`)
@@ -443,42 +425,48 @@ function warehouseStatusBadge(stats: WarehouseReadingStats | undefined): {
   return { text: 'активен', className: 'bg-emerald-100 text-emerald-800' }
 }
 
-function warehouseComplianceBadge(warehouseId: string): {
-  text: string
-  className: string
-} {
-  const redBadge = 'bg-red-50 border border-red-200 text-red-800'
-  const greenBadge = 'bg-green-50 border border-green-200 text-green-800'
-
-  try {
-    const raw = localStorage.getItem(`compliance_${warehouseId}`)
-    const state = raw
-      ? (JSON.parse(raw) as Record<string, { status?: string }>)
-      : {}
-
-    let applicable = 0
-    let done = 0
-
-    for (const id of COMPLIANCE_ITEM_IDS) {
-      const status = state[id]?.status ?? 'pending'
-      if (status === 'na') continue
-      applicable++
-      if (status === 'done') done++
-    }
-
-    if (applicable === 0) {
-      return { text: 'Требует проверки', className: redBadge }
-    }
-    if (done === applicable) {
-      return { text: 'Соответствует', className: greenBadge }
-    }
-    if (done === 0) {
-      return { text: 'Не соответствует', className: redBadge }
-    }
-    return { text: 'Требует проверки', className: redBadge }
-  } catch {
-    return { text: 'Требует проверки', className: redBadge }
+function complianceBadgeIcon(badge: WarehouseComplianceBadge) {
+  switch (badge.text) {
+    case 'Соответствует':
+      return <CheckCircle className="h-3 w-3 shrink-0" aria-hidden />
+    case 'Не соответствует':
+      return <XCircle className="h-3 w-3 shrink-0" aria-hidden />
+    case 'Не заполнен':
+      return <Circle className="h-3 w-3 shrink-0" aria-hidden />
+    default:
+      return <AlertCircle className="h-3 w-3 shrink-0" aria-hidden />
   }
+}
+
+function WarehouseComplianceStatusBadge({
+  badge,
+  onOpenCompliance,
+}: {
+  badge: WarehouseComplianceBadge
+  onOpenCompliance: () => void
+}) {
+  return (
+    <span className="relative inline-flex group/compliance">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onOpenCompliance()
+        }}
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border cursor-pointer hover:opacity-90 ${badge.className}`}
+        aria-label={`${badge.text}. ${badge.tooltip}. Открыть условия хранения`}
+      >
+        {complianceBadgeIcon(badge)}
+        {badge.text}
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-max max-w-[220px] -translate-x-1/2 rounded-md bg-slate-800 px-2 py-1 text-[10px] font-normal leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover/compliance:opacity-100"
+      >
+        {badge.tooltip}
+      </span>
+    </span>
+  )
 }
 
 function WarehouseNestedSection({
@@ -575,6 +563,7 @@ export function WarehouseDocumentsSection({
   const [dataUpdateLoadingId, setDataUpdateLoadingId] = useState<string | null>(null)
   const [dataUpdateWarehouseId, setDataUpdateWarehouseId] = useState<string | null>(null)
   const dataUpdateInputRef = useRef<HTMLInputElement>(null)
+  const [complianceRevision, setComplianceRevision] = useState(0)
 
   const {
     data: warehouses = [],
@@ -678,6 +667,13 @@ export function WarehouseDocumentsSection({
   }, [warehouses])
 
   useEffect(() => {
+    const onComplianceChanged = () => setComplianceRevision((n) => n + 1)
+    window.addEventListener(WAREHOUSE_COMPLIANCE_CHANGED, onComplianceChanged)
+    return () =>
+      window.removeEventListener(WAREHOUSE_COMPLIANCE_CHANGED, onComplianceChanged)
+  }, [])
+
+  useEffect(() => {
     if (!highlightWarehouseId) return
     setWarehouseExpanded((prev) => {
       const next = { ...prev, [highlightWarehouseId]: true }
@@ -724,6 +720,20 @@ export function WarehouseDocumentsSection({
       const nextVal = !prev[mapKey]
       writeBoolStorage(warehouseSectionKey(warehouseId, section), nextVal)
       return { ...prev, [mapKey]: nextVal }
+    })
+  }
+
+  const openComplianceSection = (warehouseId: string) => {
+    setWarehouseExpanded((prev) => {
+      if (prev[warehouseId]) return prev
+      writeBoolStorage(warehouseExpandedKey(warehouseId), true)
+      return { ...prev, [warehouseId]: true }
+    })
+    const mapKey = `${warehouseId}_compliance`
+    setSectionExpanded((prev) => {
+      if (prev[mapKey]) return prev
+      writeBoolStorage(warehouseSectionKey(warehouseId, 'compliance'), true)
+      return { ...prev, [mapKey]: true }
     })
   }
 
@@ -1182,6 +1192,7 @@ export function WarehouseDocumentsSection({
       ) : (
         <div className="space-y-4">
           {warehouses.map((w) => {
+            void complianceRevision
             const rental = rentalForWarehouse(w.id)
             const warehouseAddr = formatWarehouseAddressDisplay(w.address)
             const rentalAddr = rental?.address?.trim()
@@ -1197,7 +1208,7 @@ export function WarehouseDocumentsSection({
             const productTypes = parseProductTypes(w.product_types)
             const safeRange = computeSafeRange(productTypes)
             const statusBadge = warehouseStatusBadge(readingStats[w.id])
-            const complianceBadge = warehouseComplianceBadge(w.id)
+            const complianceBadge = getWarehouseComplianceBadge(w.id)
             const fileCount = countWarehouseFiles(w.id, clientDocs)
             const complianceDone = countComplianceDone(w.id)
             const suspiciousName = hasSuspiciousWarehouseName(w.name)
@@ -1307,11 +1318,10 @@ export function WarehouseDocumentsSection({
                               <span className="text-slate-400">·</span>
                               <span>{displayArea}</span>
                               <span className="text-slate-400">·</span>
-                              <span
-                                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium border ${complianceBadge.className}`}
-                              >
-                                {complianceBadge.text}
-                              </span>
+                              <WarehouseComplianceStatusBadge
+                                badge={complianceBadge}
+                                onOpenCompliance={() => openComplianceSection(w.id)}
+                              />
                               <span className="text-slate-400">·</span>
                               <span
                                 className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge.className}`}

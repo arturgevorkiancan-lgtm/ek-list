@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle, ChevronDown, ChevronUp, Circle, XCircle } from 'lucide-react'
 import { checklistItemRowClass } from '../lib/checklistStatusStyles'
+import { notifyComplianceChanged } from '../lib/warehouseCompliance'
 import { fetchStorageReadings } from '../lib/api'
 import { getCombinedStorageRange, getValueRangeStatus } from './StorageJournal'
 import type { ProductType } from './StorageStandardsCard'
@@ -111,6 +112,7 @@ function readComplianceState(warehouseId: string): ComplianceState {
 
 function writeComplianceState(warehouseId: string, state: ComplianceState): void {
   localStorage.setItem(complianceKey(warehouseId), JSON.stringify(state))
+  notifyComplianceChanged(warehouseId)
 }
 
 function escapeHtml(s: string): string {
