@@ -24,11 +24,7 @@ import { LoginPage } from './pages/LoginPage'
 import { AuthProvider, useAuth } from './lib/auth'
 import { isSupabaseConfigured } from './lib/supabase'
 import { EditClientModal, type EditClientFormState } from './components/EditClientModal'
-import {
-  EditLicenseModal,
-  addressesFromText,
-  type EditLicenseFormState,
-} from './components/EditLicenseModal'
+import { AddLicenseModal, type AddLicenseFormState } from './components/AddLicenseModal'
 import {
   deleteClient,
   fetchClient,
@@ -269,12 +265,11 @@ function ClientWorkspace() {
     }
   }
 
-  const handleSaveLicense = async (form: EditLicenseFormState) => {
+  const handleSaveLicense = async (form: AddLicenseFormState) => {
     if (!id) return
     setSavingLicense(true)
     try {
       const existing = licenses[0]
-      const addresses = addressesFromText(form.addressesText)
       await upsertLicense({
         id: existing?.id ?? uid(),
         client_id: id,
@@ -283,7 +278,8 @@ function ClientWorkspace() {
         expiry_date: form.expiry_date || null,
         license_type: form.license_type || null,
         license_activity: form.license_type || null,
-        addresses,
+        license_status: form.license_status || null,
+        addresses: existing?.addresses ?? [],
       })
       await qc.invalidateQueries({ queryKey: ['licenses', id] })
       setLicenseModalOpen(false)
@@ -546,9 +542,10 @@ function ClientWorkspace() {
         onClose={() => setEditClientOpen(false)}
         onSave={handleSaveClient}
       />
-      <EditLicenseModal
+      <AddLicenseModal
         open={licenseModalOpen}
         license={licenses[0] ?? null}
+        clientInn={client.inn}
         saving={savingLicense}
         onClose={() => setLicenseModalOpen(false)}
         onSave={handleSaveLicense}

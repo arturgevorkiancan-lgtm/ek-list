@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Pencil } from 'lucide-react'
+import { Pencil, Plus } from 'lucide-react'
 import { CopyOnClick } from './CopyOnClick'
 import { useAuth } from '../lib/auth'
 import { isSupabaseConfigured } from '../lib/supabase'
@@ -436,7 +436,11 @@ export function ClientDashboard({
                   onClick={onEditLicense}
                   className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
                 >
-                  <Pencil className="h-3 w-3" />
+                  {latestLicense ? (
+                    <Pencil className="h-3 w-3" />
+                  ) : (
+                    <Plus className="h-3 w-3" />
+                  )}
                   {latestLicense ? 'Редактировать' : 'Добавить лицензию'}
                 </button>
               )}
