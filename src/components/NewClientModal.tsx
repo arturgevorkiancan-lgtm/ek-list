@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { FileText, Loader2, Upload, X } from 'lucide-react'
+import { useToast } from '../context/ToastContext'
 import { parseEgrylUploadFile } from '../lib/parseEgrylFile'
 import { parsedEgrylToRequisites } from '../lib/egrylRequisites'
 
@@ -48,7 +49,7 @@ interface NewClientModalProps {
   open: boolean
   saving?: boolean
   onClose: () => void
-  onCreate: (data: NewClientFormState) => void | Promise<void>
+  onCreate: (data: NewClientFormState, egrylFile?: File) => void | Promise<void>
 }
 
 export function NewClientModal({
@@ -57,27 +58,28 @@ export function NewClientModal({
   onClose,
   onCreate,
 }: NewClientModalProps) {
+  const { showToast } = useToast()
   const [form, setForm] = useState<NewClientFormState>(EMPTY_FORM)
   const [errors, setErrors] = useState<Partial<Record<keyof NewClientFormState, string>>>({})
   const egrylInputRef = useRef<HTMLInputElement>(null)
   const [egrylLoading, setEgrylLoading] = useState(false)
-  const [egrylError, setEgrylError] = useState<string | null>(null)
+  const [pendingEgrylFile, setPendingEgrylFile] = useState<File | null>(null)
 
   useEffect(() => {
     if (open) {
       setForm(EMPTY_FORM)
       setErrors({})
-      setEgrylError(null)
+      setPendingEgrylFile(null)
       setEgrylLoading(false)
     }
   }, [open])
 
   const handleEgrylFile = async (file: File) => {
-    setEgrylError(null)
     setEgrylLoading(true)
     try {
       const result = await parseEgrylUploadFile(file)
       const patch = parsedEgrylToRequisites(result.client)
+      setPendingEgrylFile(file)
       setForm((f) => ({
         ...f,
         name: patch.name || f.name,
@@ -87,8 +89,10 @@ export function NewClientModal({
         legal_address: patch.legal_address ?? f.legal_address,
       }))
       setErrors({})
-    } catch (e) {
-      setEgrylError(e instanceof Error ? e.message : 'Ошибка парсинга')
+      showToast('Данные заполнены из ЕГРЮЛ')
+    } catch {
+      setPendingEgrylFile(null)
+      showToast('Не удалось распознать файл, заполните вручную', 'error')
     } finally {
       setEgrylLoading(false)
       if (egrylInputRef.current) egrylInputRef.current.value = ''
@@ -119,7 +123,7 @@ export function NewClientModal({
     }
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
-    void onCreate(form)
+    void onCreate(form, pendingEgrylFile ?? undefined)
   }
 
   const field = (
@@ -193,7 +197,6 @@ export function NewClientModal({
           />
           <p className="text-xs text-slate-500">Поддерживаются форматы PDF и XML</p>
           <p className="text-xs text-slate-500">Данные заполнятся автоматически</p>
-          {egrylError && <p className="text-xs text-red-600">{egrylError}</p>}
         </div>
 
         {field('kpp', 'КПП')}

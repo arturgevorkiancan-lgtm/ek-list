@@ -22,8 +22,20 @@ import type {
   Warehouse,
 } from '../types'
 
+let supabaseSessionInit: Promise<void> | null = null
+
+/** Wait until auth session is loaded before table/storage requests (avoids CORS/401 on cold start). */
+async function ensureSupabaseSession(): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) return
+  if (!supabaseSessionInit) {
+    supabaseSessionInit = supabase.auth.getSession().then(() => undefined)
+  }
+  await supabaseSessionInit
+}
+
 async function getAuthUserId(): Promise<string | null> {
   if (!isSupabaseConfigured || !supabase) return null
+  await ensureSupabaseSession()
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -50,6 +62,7 @@ export function deduplicateDocuments(docs: Document[]): Document[] {
 
 export async function fetchClients(): Promise<Client[]> {
   if (isSupabaseConfigured && supabase) {
+    await ensureSupabaseSession()
     const { data, error } = await supabase.from('clients').select('*').order('name')
     if (error) throw error
     return data as Client[]
@@ -59,6 +72,7 @@ export async function fetchClients(): Promise<Client[]> {
 
 export async function fetchClient(id: string): Promise<Client | null> {
   if (isSupabaseConfigured && supabase) {
+    await ensureSupabaseSession()
     const { data, error } = await supabase.from('clients').select('*').eq('id', id).single()
     if (error) return null
     return data as Client
@@ -133,6 +147,7 @@ export async function deleteClient(id: string): Promise<void> {
 
 export async function fetchLicenses(clientId?: string): Promise<License[]> {
   if (isSupabaseConfigured && supabase) {
+    await ensureSupabaseSession()
     let q = supabase.from('licenses').select('*')
     if (clientId) q = q.eq('client_id', clientId)
     const { data, error } = await q.order('expiry_date', { ascending: false })
@@ -277,6 +292,7 @@ export async function findClientByInn(inn: string): Promise<Client | null> {
 
 export async function fetchChecklists(clientId?: string): Promise<Checklist[]> {
   if (isSupabaseConfigured && supabase) {
+    await ensureSupabaseSession()
     let q = supabase.from('checklists').select('*')
     if (clientId) q = q.eq('client_id', clientId)
     const { data, error } = await q.order('updated_at', { ascending: false })
@@ -665,6 +681,7 @@ export async function uploadClientDocument(
   const path = `${clientId}/${docType}/${safeFilename}`
 
   if (isSupabaseConfigured && supabase) {
+    await ensureSupabaseSession()
     diagnostics.info('Storage', 'Загрузка файла', {
       path,
       fileSize: file.size,

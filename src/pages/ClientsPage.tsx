@@ -15,8 +15,10 @@ import {
   fetchChecklists,
   fetchLicenses,
   updateClient,
+  uploadClientDocument,
   upsertClient,
 } from '../lib/api'
+import { parseEgrylUploadFile } from '../lib/parseEgrylFile'
 import { seedDemoDataIfEmpty } from '../lib/seed'
 import { getLicenseExpiryStatus, EXPIRY_COLORS, EXPIRY_DOT, EXPIRY_LABEL } from '../lib/licenseUtils'
 import { useNotifications } from '../hooks/useNotifications'
@@ -192,7 +194,7 @@ export function ClientsPage() {
     })
   }, [clientsWithMeta, search])
 
-  const handleCreateClient = async (form: NewClientFormState) => {
+  const handleCreateClient = async (form: NewClientFormState, egrylFile?: File) => {
     setCreatingClient(true)
     try {
       const client = await upsertClient({
@@ -205,6 +207,17 @@ export function ClientsPage() {
         phone: form.phone.trim() || null,
         email: form.email.trim() || null,
       })
+      if (egrylFile) {
+        try {
+          const parsed = await parseEgrylUploadFile(egrylFile)
+          await uploadClientDocument(client.id, egrylFile, 'egryl', {
+            client: parsed.client,
+            license: parsed.license,
+          })
+        } catch {
+          showToast('Клиент создан, но ЕГРЮЛ не сохранён', 'error')
+        }
+      }
       await qc.invalidateQueries({ queryKey: ['clients'] })
       setNewClientOpen(false)
       showToast('Клиент создан')

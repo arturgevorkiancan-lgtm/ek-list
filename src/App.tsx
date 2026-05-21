@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   BrowserRouter,
   Routes,
@@ -22,7 +22,7 @@ import { ClientsPage } from './pages/ClientsPage'
 import { ChecklistPage } from './pages/ChecklistPage'
 import { LoginPage } from './pages/LoginPage'
 import { AuthProvider, useAuth } from './lib/auth'
-import { isSupabaseConfigured } from './lib/supabase'
+import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { EditClientModal, type EditClientFormState } from './components/EditClientModal'
 import { AddLicenseModal, type AddLicenseFormState } from './components/AddLicenseModal'
 import {
@@ -55,6 +55,37 @@ const queryClient = new QueryClient({
 
 const LAST_CLIENT_KEY = 'checklist_last_client'
 const ONBOARDED_KEY = 'checklist_onboarded'
+
+const SessionReadyContext = createContext(true)
+
+function useSessionReady(): boolean {
+  return useContext(SessionReadyContext)
+}
+
+function SessionReadyProvider({ children }: { children: ReactNode }) {
+  const [sessionReady, setSessionReady] = useState(!isSupabaseConfigured)
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) {
+      setSessionReady(true)
+      return
+    }
+
+    supabase.auth.getSession().then(() => setSessionReady(true))
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      setSessionReady(true)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  return (
+    <SessionReadyContext.Provider value={sessionReady}>{children}</SessionReadyContext.Provider>
+  )
+}
 
 function OnboardingModal() {
   const [open, setOpen] = useState(() => {
@@ -168,6 +199,7 @@ function ClientWorkspace() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const sessionReady = useSessionReady()
   const { showToast } = useToast()
   const dataConflicts = useDataConflicts(id)
   const settingsRef = useRef<HTMLDivElement>(null)
@@ -185,25 +217,25 @@ function ClientWorkspace() {
   const { data: client, isLoading: clientLoading } = useQuery({
     queryKey: ['client', id],
     queryFn: () => fetchClient(id!),
-    enabled: !!id,
+    enabled: sessionReady && !!id,
   })
 
   const { data: licenses = [] } = useQuery({
     queryKey: ['licenses', id],
     queryFn: () => fetchLicenses(id),
-    enabled: !!id,
+    enabled: sessionReady && !!id,
   })
 
   const { data: warehouses = [], isLoading: warehousesLoading } = useQuery({
     queryKey: ['warehouses', id],
     queryFn: () => fetchWarehouses(id!),
-    enabled: !!id,
+    enabled: sessionReady && !!id,
   })
 
   const { data: clientDocs = [], refetch: refetchDocs } = useQuery({
     queryKey: ['client-documents', id],
     queryFn: () => fetchClientDocuments(id!),
-    enabled: !!id,
+    enabled: sessionReady && !!id,
   })
 
   useEffect(() => {
@@ -602,10 +634,11 @@ function LoginRoute() {
 
 function AppRoutes() {
   const { user, loading } = useAuth()
+  const sessionReady = useSessionReady()
   const location = useLocation()
 
   if (isSupabaseConfigured) {
-    if (loading) return <AuthLoadingSkeleton />
+    if (loading || !sessionReady) return <AuthLoadingSkeleton />
     if (!user) {
       return <Navigate to="/login" state={{ from: location }} replace />
     }
@@ -629,12 +662,14 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <AuthProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={<LoginRoute />} />
-              <Route path="*" element={<AppRoutes />} />
-            </Routes>
-          </BrowserRouter>
+          <SessionReadyProvider>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/login" element={<LoginRoute />} />
+                <Route path="*" element={<AppRoutes />} />
+              </Routes>
+            </BrowserRouter>
+          </SessionReadyProvider>
         </AuthProvider>
       </ToastProvider>
     </QueryClientProvider>
