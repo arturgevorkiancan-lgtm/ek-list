@@ -18,6 +18,7 @@ import {
 } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { DeadlinePanel } from './DeadlinePanel'
+import { LicenseTypeBadge } from './LicenseTypeBadge'
 import type { Checklist, Client, Document, License, Warehouse } from '../types'
 
 const COMPLIANCE_TOTAL = 14
@@ -207,7 +208,13 @@ function formatRelativeActivity(date: Date): string {
 
 function getLatestLicense(licenses: License[]): License | null {
   if (licenses.length === 0) return null
-  return [...licenses].sort((a, b) => (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''))[0]
+  const active = licenses.filter(
+    (l) => l.license_status === 'действующая' || l.license_status === 'приостановлена',
+  )
+  const pool = active.length > 0 ? active : licenses
+  return [...pool].sort((a, b) =>
+    (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''),
+  )[0]
 }
 
 function nearestExpiryDays(licenses: License[]): number | null {
@@ -414,24 +421,25 @@ export function ClientDashboard({
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {latestLicense?.license_number ? (
-                <p className="text-sm text-slate-700">
-                  <span className="text-slate-500">Лицензия </span>
-                  <span className="font-medium">{latestLicense.license_number}</span>
-                  {latestLicense.license_activity && (
-                    <span className="text-slate-500">
-                      {' '}
-                      · {latestLicense.license_activity}
-                    </span>
-                  )}
-                  {latestLicense.expiry_date && (
-                    <span className="text-slate-500">
-                      {' '}
-                      · до{' '}
-                      {format(parseISO(latestLicense.expiry_date), 'd MMMM yyyy', {
-                        locale: ru,
-                      })}
-                    </span>
-                  )}
+                <p className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                  <span>
+                    <span className="text-slate-500">Лицензия </span>
+                    <span className="font-medium">{latestLicense.license_number}</span>
+                    {latestLicense.expiry_date && (
+                      <span className="text-slate-500">
+                        {' '}
+                        · до{' '}
+                        {format(parseISO(latestLicense.expiry_date), 'd MMMM yyyy', {
+                          locale: ru,
+                        })}
+                      </span>
+                    )}
+                  </span>
+                  <LicenseTypeBadge
+                    licenseType={
+                      latestLicense.license_label ?? latestLicense.license_activity
+                    }
+                  />
                 </p>
               ) : (
                 <p className="text-sm text-slate-500">Лицензия не указана</p>

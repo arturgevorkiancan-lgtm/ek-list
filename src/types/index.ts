@@ -78,6 +78,7 @@ export interface License {
   expiry_date: string | null
   license_type: string | null
   license_activity: string | null
+  license_label?: string | null
   license_status: string | null
   licensee_name: string | null
   licensee_kpp: string | null

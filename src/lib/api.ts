@@ -167,6 +167,7 @@ export async function upsertLicense(license: Partial<License> & { client_id: str
     expiry_date: license.expiry_date ?? null,
     license_type: license.license_type ?? null,
     license_activity: license.license_activity ?? null,
+    license_label: license.license_label ?? null,
     license_status: license.license_status ?? null,
     licensee_name: license.licensee_name ?? null,
     licensee_kpp: license.licensee_kpp ?? null,

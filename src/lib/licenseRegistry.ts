@@ -19,6 +19,7 @@ export function registryRecordToLicenseUpsert(
     expiry_date: record.valid_to?.trim() || null,
     license_type: activity || null,
     license_activity: activity || null,
+    license_label: record.license_label || null,
     license_status: normalizeLicenseStatus(record.status),
   }
 }
@@ -56,6 +57,7 @@ export function classifyLicense(activityType: string): { label: string; color: s
   if (isAlco && isRetail) return { label: 'РОЗНИЦА АЛКО', color: 'blue' }
   if (isAlco && isProduction) return { label: 'ПРОИЗВ АЛКО', color: 'blue' }
   if (isAlco && isWholesale) return { label: 'ЗХП АЛКО', color: 'blue' }
+  if (isAlco) return { label: 'ЗХП АЛКО', color: 'blue' }
   return { label: 'ИНОЕ', color: 'gray' }
 }
 
