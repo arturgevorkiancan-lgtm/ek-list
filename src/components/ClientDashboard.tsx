@@ -217,6 +217,24 @@ function getLatestLicense(licenses: License[]): License | null {
   )[0]
 }
 
+function getActiveLicenses(licenses: License[]): License[] {
+  return licenses
+    .filter(
+      (l) =>
+        l.license_status === 'действующая' || l.license_status === 'приостановлена',
+    )
+    .sort((a, b) => (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''))
+}
+
+function getOverviewLicenses(licenses: License[]): License[] {
+  const active = getActiveLicenses(licenses)
+  if (active.length > 0) return active
+  if (licenses.length === 0) return []
+  return [...licenses]
+    .sort((a, b) => (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''))
+    .slice(0, 1)
+}
+
 function nearestExpiryDays(licenses: License[]): number | null {
   const dates = licenses
     .map((l) => l.expiry_date)
@@ -327,6 +345,7 @@ export function ClientDashboard({
 
   const displayName = client.short_name?.trim() || client.name
   const latestLicense = getLatestLicense(licenses)
+  const overviewLicenses = getOverviewLicenses(licenses)
   const badge = getLicenseBadge(licenses)
   const warehouseCount = warehouses.length
 
@@ -420,27 +439,28 @@ export function ClientDashboard({
               <RequisitesLine client={client} />
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              {latestLicense?.license_number ? (
-                <p className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
-                  <span>
-                    <span className="text-slate-500">Лицензия </span>
-                    <span className="font-medium">{latestLicense.license_number}</span>
-                    {latestLicense.expiry_date && (
-                      <span className="text-slate-500">
-                        {' '}
-                        · до{' '}
-                        {format(parseISO(latestLicense.expiry_date), 'd MMMM yyyy', {
-                          locale: ru,
-                        })}
-                      </span>
-                    )}
-                  </span>
-                  <LicenseTypeBadge
-                    licenseType={
-                      latestLicense.license_label ?? latestLicense.license_activity
-                    }
-                  />
-                </p>
+              {overviewLicenses.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {overviewLicenses.map((lic) => (
+                    <div
+                      key={lic.id}
+                      className="flex flex-wrap items-center gap-2 text-sm text-slate-700"
+                    >
+                      <LicenseTypeBadge
+                        licenseType={lic.license_label ?? lic.license_activity}
+                      />
+                      <span className="font-medium">{lic.license_number}</span>
+                      {lic.expiry_date && (
+                        <span className="text-slate-500">
+                          · до{' '}
+                          {format(parseISO(lic.expiry_date), 'd MMMM yyyy', {
+                            locale: ru,
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <p className="text-sm text-slate-500">Лицензия не указана</p>
               )}
