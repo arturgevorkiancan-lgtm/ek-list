@@ -9,6 +9,7 @@ import {
 } from '../lib/licenseRegistry'
 import { isWarehouseAddressDuplicate } from '../lib/warehouseAddressMatch'
 import { useToast } from '../context/ToastContext'
+import { LicenseTypeBadge } from './LicenseTypeBadge'
 import type { Warehouse } from '../types'
 
 type RegistryAddressRow = {
@@ -16,6 +17,7 @@ type RegistryAddressRow = {
   address: string
   kpp: string | null
   licenseNumber: string
+  licenseType: string | null
   isDuplicate: boolean
 }
 
@@ -40,6 +42,7 @@ function collectRegistryAddresses(licenses: LicenseRecord[]): Omit<RegistryAddre
         address: normalizedAddress,
         kpp: lic.kpp,
         licenseNumber: lic.license_number,
+        licenseType: lic.license_label || null,
       })
     }
   }
@@ -180,6 +183,7 @@ export function RegistryWarehousesPanel({
         name: generateWarehouseName(row.address, allAddresses),
         address: row.address,
         kpp: row.kpp,
+        license_type: row.licenseType,
       }))
       console.log('Payload складов:', payload.map((p) => ({ name: p.name, address: p.address })))
       const count = await createWarehousesFromRegistry(payload)
@@ -276,7 +280,10 @@ export function RegistryWarehousesPanel({
                     onChange={() => toggleRow(row.id)}
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-slate-900 break-words">{row.address}</span>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <LicenseTypeBadge licenseType={row.licenseType} />
+                      <span className="text-slate-900 break-words">{row.address}</span>
+                    </span>
                     <span className="block text-xs text-slate-500 mt-0.5">
                       {row.kpp ? `КПП ${row.kpp}` : 'КПП —'}
                       {row.licenseNumber ? ` · лиц. ${row.licenseNumber}` : ''}

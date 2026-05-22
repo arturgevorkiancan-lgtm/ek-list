@@ -485,7 +485,7 @@ export async function fetchClientDocuments(clientId: string): Promise<Document[]
 export type WarehouseWithProducts = Warehouse & { product_types?: string[] }
 
 const WAREHOUSE_SELECT_COLUMNS =
-  'id, client_id, name, kpp, address, cadastral_number, area_sqm, floor, room_number, object_purpose, additional_address_info, created_at'
+  'id, client_id, name, kpp, address, cadastral_number, area_sqm, floor, room_number, object_purpose, additional_address_info, license_type, created_at'
 
 function isPgrst204(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
@@ -560,6 +560,7 @@ export async function upsertWarehouse(
     room_number: warehouse.room_number ?? null,
     object_purpose: warehouse.object_purpose ?? null,
     additional_address_info: warehouse.additional_address_info ?? null,
+    license_type: warehouse.license_type ?? null,
     product_types: warehouse.product_types ?? [],
     created_at: warehouse.created_at ?? new Date().toISOString(),
   }
@@ -614,6 +615,7 @@ export type RegistryWarehouseInsert = {
   name: string
   address: string
   kpp: string | null
+  license_type?: string | null
 }
 
 export async function createWarehousesFromRegistry(
@@ -640,6 +642,7 @@ export async function createWarehousesFromRegistry(
       room_number: null,
       object_purpose: null,
       additional_address_info: null,
+      license_type: item.license_type ?? null,
       created_at: new Date().toISOString(),
     })
   }

@@ -27,7 +27,7 @@ function normalizeInn(inn: string): string {
   return inn.replace(/\D/g, '')
 }
 
-function classifyLicense(activityType: string): { label: string; color: string } {
+export function classifyLicense(activityType: string): { label: string; color: string } {
   const t = activityType.toLowerCase()
   const isSpirit = t.includes('спиртосодержащ')
   const isSpiritFood = isSpirit && t.includes('пищев')

@@ -101,6 +101,7 @@ create table warehouses (
   room_number text,
   object_purpose text,
   additional_address_info text,
+  license_type text,
   created_at timestamptz default now()
 );
 

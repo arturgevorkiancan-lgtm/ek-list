@@ -16,6 +16,7 @@ import {
 } from '../lib/licenseRegistry'
 import { readBoolStorage, writeBoolStorage } from '../lib/collapsibleStorage'
 import { CopyOnClick } from './CopyOnClick'
+import { LicenseTypeBadge } from './LicenseTypeBadge'
 
 const REGISTRY_EXPANDED_KEY = 'registry_rat_expanded'
 const REGISTRY_URL = 'https://fsrar.gov.ru/opendata/7710747640-reestr'
@@ -25,13 +26,6 @@ type BlockState = 'idle' | 'loading' | 'success' | 'error'
 
 interface RegistryBlockProps {
   clientInn: string | null | undefined
-}
-
-const LABEL_COLORS: Record<string, string> = {
-  blue: 'bg-blue-100 text-blue-800',
-  purple: 'bg-purple-100 text-purple-800',
-  gray: 'bg-gray-100 text-gray-600',
-  orange: 'bg-orange-100 text-orange-800',
 }
 
 function formatDate(iso: string | null): string {
@@ -76,17 +70,6 @@ const INDICATOR_DOT: Record<StatusIndicator, string> = {
   red: 'bg-red-500',
 }
 
-function LicenseLabelBadge({ record }: { record: LicenseRecord }) {
-  const colorClass = LABEL_COLORS[record.license_color] ?? LABEL_COLORS.gray
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${colorClass}`}
-    >
-      {record.license_label}
-    </span>
-  )
-}
-
 function LicenseCard({
   record,
   archived,
@@ -118,7 +101,7 @@ function LicenseCard({
           ) : (
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
           )}
-          <LicenseLabelBadge record={record} />
+          <LicenseTypeBadge licenseType={record.license_label} />
           {record.license_number ? (
             <CopyOnClick text={record.license_number} label="Номер лицензии скопирован">
               <span className="font-medium">{licenseNumber}</span>

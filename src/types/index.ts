@@ -54,6 +54,7 @@ export interface Warehouse {
   room_number: string | null
   object_purpose: string | null
   additional_address_info: string | null
+  license_type: string | null
   created_at: string
 }
 

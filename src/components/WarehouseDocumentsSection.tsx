@@ -59,6 +59,7 @@ import {
   type WarehouseSectionId,
 } from '../lib/collapsibleStorage'
 import { CopyOnClick } from './CopyOnClick'
+import { LicenseTypeBadge } from './LicenseTypeBadge'
 import { OrganizationEgrylBlock } from './OrganizationEgrylBlock'
 import { RegistryBlock } from './RegistryBlock'
 import { RegistryWarehousesPanel } from './RegistryWarehousesPanel'
@@ -1284,6 +1285,7 @@ export function WarehouseDocumentsSection({
                               ) : (
                                 <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
                               )}
+                              <LicenseTypeBadge licenseType={w.license_type} />
                               <WarehouseIcon className="h-4 w-4 text-brand-600 shrink-0" />
                               <span className="font-semibold text-slate-900">
                                 {displayWarehouseName(w.name)}
