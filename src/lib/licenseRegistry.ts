@@ -1,4 +1,27 @@
+import type { License } from '../types'
 import { isSupabaseConfigured, supabase } from './supabase'
+
+export function normalizeLicenseStatus(status: string): string {
+  if (/приостановлен/i.test(status)) return 'приостановлена'
+  return 'действующая'
+}
+
+/** Маппинг строки registry_cache → поля upsert в licenses */
+export function registryRecordToLicenseUpsert(
+  record: LicenseRecord,
+  clientId: string,
+): Partial<License> & { client_id: string } {
+  const activity = record.activity_type.trim()
+  return {
+    client_id: clientId,
+    license_number: record.license_number.trim() || null,
+    issue_date: record.valid_from?.trim() || null,
+    expiry_date: record.valid_to?.trim() || null,
+    license_type: activity || null,
+    license_activity: activity || null,
+    license_status: normalizeLicenseStatus(record.status),
+  }
+}
 
 function normalizeInn(inn: string): string {
   return inn.replace(/\D/g, '')

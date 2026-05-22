@@ -12,7 +12,12 @@ import {
 import { format, isValid, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { parseLicensePdf } from '../lib/licenseParser'
-import { loadFromCache, type LicenseRecord } from '../lib/licenseRegistry'
+import {
+  loadFromCache,
+  normalizeLicenseStatus,
+  registryRecordToLicenseUpsert,
+  type LicenseRecord,
+} from '../lib/licenseRegistry'
 import type { License, ParsedLicenseData } from '../types'
 
 export const LICENSE_ACTIVITY_OPTIONS = [
@@ -59,11 +64,6 @@ function licenseToForm(license: License | null): AddLicenseFormState {
   }
 }
 
-function normalizeLicenseStatus(status: string): string {
-  if (/приостановлен/i.test(status)) return 'приостановлена'
-  return 'действующая'
-}
-
 function isoToDisplay(iso: string): string {
   if (!iso?.trim()) return ''
   const d = parseISO(iso)
@@ -92,12 +92,13 @@ function parsedToForm(data: ParsedLicenseData): AddLicenseFormState {
 }
 
 function registryRecordToForm(record: LicenseRecord): AddLicenseFormState {
+  const mapped = registryRecordToLicenseUpsert(record, '')
   return {
-    license_number: record.license_number.trim(),
-    license_type: record.activity_type.trim(),
-    issue_date: record.valid_from?.trim() ?? '',
-    expiry_date: record.valid_to?.trim() ?? '',
-    license_status: normalizeLicenseStatus(record.status),
+    license_number: mapped.license_number ?? '',
+    license_type: mapped.license_type ?? '',
+    issue_date: mapped.issue_date ?? '',
+    expiry_date: mapped.expiry_date ?? '',
+    license_status: mapped.license_status ?? 'действующая',
   }
 }
 

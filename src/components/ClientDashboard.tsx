@@ -417,6 +417,12 @@ export function ClientDashboard({
                 <p className="text-sm text-slate-700">
                   <span className="text-slate-500">Лицензия </span>
                   <span className="font-medium">{latestLicense.license_number}</span>
+                  {latestLicense.license_activity && (
+                    <span className="text-slate-500">
+                      {' '}
+                      · {latestLicense.license_activity}
+                    </span>
+                  )}
                   {latestLicense.expiry_date && (
                     <span className="text-slate-500">
                       {' '}

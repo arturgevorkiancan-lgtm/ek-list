@@ -1673,6 +1673,7 @@ export function WarehouseDocumentsSection({
         onWarehousesCreated={() => {
           void refetchWarehouses()
           void qc.invalidateQueries({ queryKey: ['warehouses', clientId] })
+          void qc.invalidateQueries({ queryKey: ['licenses', clientId] })
         }}
       />
       <RegistryBlock clientInn={clientInn} />

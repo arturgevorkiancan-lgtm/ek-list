@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Building2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
-import { createWarehousesFromRegistry } from '../lib/api'
+import { createWarehousesFromRegistry, upsertLicense } from '../lib/api'
 import { generateWarehouseName } from '../lib/generateWarehouseName'
-import { loadFromCache, type LicenseRecord } from '../lib/licenseRegistry'
+import {
+  loadFromCache,
+  registryRecordToLicenseUpsert,
+  type LicenseRecord,
+} from '../lib/licenseRegistry'
 import { isWarehouseAddressDuplicate } from '../lib/warehouseAddressMatch'
 import { useToast } from '../context/ToastContext'
 import type { Warehouse } from '../types'
@@ -22,13 +26,18 @@ function collectRegistryAddresses(licenses: LicenseRecord[]): Omit<RegistryAddre
   for (const lic of licenses) {
     for (const raw of lic.addresses) {
       const address = raw.trim()
-      if (!address) continue
-      const key = address.toLowerCase()
+      const normalizedAddress = address
+        .replace(/,\s*,+/g, ',')
+        .replace(/^,+|,+$/g, '')
+        .replace(/,\s*$/, '')
+        .trim()
+      if (!normalizedAddress) continue
+      const key = normalizedAddress.toLowerCase()
       if (seen.has(key)) continue
       seen.add(key)
       rows.push({
         id: key,
-        address,
+        address: normalizedAddress,
         kpp: lic.kpp,
         licenseNumber: lic.license_number,
       })
@@ -172,7 +181,22 @@ export function RegistryWarehousesPanel({
         address: row.address,
         kpp: row.kpp,
       }))
+      console.log('Payload складов:', payload.map((p) => ({ name: p.name, address: p.address })))
       const count = await createWarehousesFromRegistry(payload)
+
+      const uniqueLicenses = new Map<string, LicenseRecord>()
+      for (const row of toCreate) {
+        if (row.licenseNumber && !uniqueLicenses.has(row.licenseNumber)) {
+          const fullRecord = activeLicenses.find(
+            (l) => l.license_number === row.licenseNumber,
+          )
+          if (fullRecord) uniqueLicenses.set(row.licenseNumber, fullRecord)
+        }
+      }
+      for (const record of uniqueLicenses.values()) {
+        await upsertLicense(registryRecordToLicenseUpsert(record, clientId))
+      }
+
       showToast(`Создано складов: ${count}`)
       onWarehousesCreated()
       setSelected((prev) => {

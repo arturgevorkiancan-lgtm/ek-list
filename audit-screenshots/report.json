@@ -1,0 +1,170 @@
+[
+  {
+    "block": "7",
+    "item": "Ctrl+R на /login",
+    "status": "ok",
+    "detail": "страница входа"
+  },
+  {
+    "block": "1",
+    "item": "Кнопка \"+ Добавить клиента\"",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "1",
+    "item": "Список клиентов",
+    "status": "ok",
+    "detail": "карточек: 2"
+  },
+  {
+    "block": "1",
+    "item": "Бейджи предупреждений",
+    "status": "ok",
+    "detail": "элементов с индикацией: 1"
+  },
+  {
+    "block": "2",
+    "item": "Кнопка загрузки ЕГРЮЛ",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "2",
+    "item": "Автозаполнение из ЕГРЮЛ",
+    "status": "partial",
+    "detail": "ИНН=\"\""
+  },
+  {
+    "block": "2",
+    "item": "Сохранение клиента",
+    "status": "ok",
+    "detail": "http://127.0.0.1:5179/clients/074796e7-75f6-4d73-9783-d0ccfe7ee346"
+  },
+  {
+    "block": "3",
+    "item": "ИНН на обзоре",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "3",
+    "item": "КПП на обзоре",
+    "status": "partial",
+    "detail": ""
+  },
+  {
+    "block": "3",
+    "item": "ОГРН на обзоре",
+    "status": "partial",
+    "detail": ""
+  },
+  {
+    "block": "3",
+    "item": "Кнопка \"Добавить лицензию\"",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "3",
+    "item": "Режим: вручную",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "3",
+    "item": "Режим: PDF",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "3",
+    "item": "Режим: реестр РАТ",
+    "status": "partial",
+    "detail": ""
+  },
+  {
+    "block": "4",
+    "item": "5 типов операций",
+    "status": "ok",
+    "detail": "кнопок: 0"
+  },
+  {
+    "block": "5",
+    "item": "Блок \"Документы организации\"",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "Кнопка ЕГРЮЛ",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "\"Обновить данные из документа\"",
+    "status": "partial",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "\"Склады из реестра\"",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "\"Создать выбранные\"",
+    "status": "partial",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "Реестр РАТ",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "ДЕЙСТВУЮЩИЕ/АРХИВ",
+    "status": "partial",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "Секция \"Документы\"",
+    "status": "ok",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "Секция \"Журнал\"",
+    "status": "partial",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "Секция \"Условия\"",
+    "status": "partial",
+    "detail": ""
+  },
+  {
+    "block": "5",
+    "item": "Секция \"ГОСТ\"",
+    "status": "partial",
+    "detail": ""
+  },
+  {
+    "block": "7",
+    "item": "\"Все клиенты\" → главная",
+    "status": "partial",
+    "detail": "http://127.0.0.1:5179/clients/074796e7-75f6-4d73-9783-d0ccfe7ee346"
+  },
+  {
+    "block": "7",
+    "item": "Ctrl+R на карточке клиента",
+    "status": "ok",
+    "detail": "страница загружена"
+  }
+]
