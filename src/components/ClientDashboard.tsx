@@ -345,6 +345,9 @@ export function ClientDashboard({
 
   const displayName = client.short_name?.trim() || client.name
   const latestLicense = getLatestLicense(licenses)
+  const activeLicenses = getActiveLicenses(licenses)
+  const deadlineLicenses =
+    activeLicenses.length > 0 ? activeLicenses : latestLicense ? [latestLicense] : []
   const overviewLicenses = getOverviewLicenses(licenses)
   const badge = getLicenseBadge(licenses)
   const warehouseCount = warehouses.length
@@ -588,7 +591,7 @@ export function ClientDashboard({
         )}
       </section>
 
-      <DeadlinePanel client={client} license={latestLicense} />
+      <DeadlinePanel client={client} licenses={deadlineLicenses} />
     </div>
   )
 }

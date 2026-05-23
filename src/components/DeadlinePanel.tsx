@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react'
 import { differenceInDays, format, isValid, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+import { LicenseTypeBadge } from './LicenseTypeBadge'
 import type { Client, Document, License, OperationType, Warehouse } from '../types'
 
 export interface DeadlinePanelProps {
   client: Client
-  license: License | null
+  licenses: License[]
 }
 
 type AlertLevel = 'critical' | 'warning' | 'info'
@@ -137,55 +138,24 @@ const LEVEL_LABELS: Record<AlertLevel, string> = {
   info: 'Информация',
 }
 
-export function DeadlinePanel({ client, license }: DeadlinePanelProps) {
+function licenseIndicatorDot(daysLeft: number | null): string {
+  if (daysLeft === null) return 'bg-slate-300'
+  if (daysLeft < 0) return 'bg-red-500'
+  if (daysLeft <= 90) return 'bg-amber-400'
+  return 'bg-emerald-500'
+}
+
+export function DeadlinePanel({ client, licenses }: DeadlinePanelProps) {
   const [open, setOpen] = useState(true)
+
+  const today = useMemo(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  }, [])
 
   const alerts = useMemo(() => {
     const list: Alert[] = []
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    if (license?.expiry_date) {
-      const expiry = parseISO(license.expiry_date)
-      if (isValid(expiry)) {
-        const daysLeft = differenceInDays(expiry, today)
-        if (daysLeft < 0) {
-          list.push({
-            level: 'critical',
-            icon: '🔴',
-            text: 'Лицензия истекла',
-            badge: format(expiry, 'dd.MM.yyyy', { locale: ru }),
-          })
-        } else if (daysLeft < 30) {
-          list.push({
-            level: 'critical',
-            icon: '🔴',
-            text: `Лицензия истекает через ${daysLeft} дн.`,
-            badge: format(expiry, 'dd.MM.yyyy', { locale: ru }),
-          })
-        } else if (daysLeft <= 90) {
-          list.push({
-            level: 'warning',
-            icon: '🟠',
-            text: `Лицензия истекает через ${daysLeft} дн.`,
-            badge: format(expiry, 'dd.MM.yyyy', { locale: ru }),
-          })
-        } else {
-          list.push({
-            level: 'info',
-            icon: '🟢',
-            text: `Лицензия действует ещё ${daysLeft} дн.`,
-            badge: format(expiry, 'dd.MM.yyyy', { locale: ru }),
-          })
-        }
-      }
-    } else {
-      list.push({
-        level: 'warning',
-        icon: '⚠',
-        text: 'Нет данных о сроке лицензии',
-      })
-    }
 
     const egrylDocs = readLocalDocuments(client.id)
       .filter((d) => d.doc_type === 'egryl')
@@ -261,7 +231,7 @@ export function DeadlinePanel({ client, license }: DeadlinePanelProps) {
     }
 
     return list
-  }, [client.id, license])
+  }, [client.id, today])
 
   const grouped = useMemo(() => {
     const critical = alerts.filter((a) => a.level === 'critical')
@@ -270,8 +240,19 @@ export function DeadlinePanel({ client, license }: DeadlinePanelProps) {
     return { critical, warning, info }
   }, [alerts])
 
-  const hasAlerts =
+  const hasOtherAlerts =
     grouped.critical.length > 0 || grouped.warning.length > 0 || grouped.info.length > 0
+
+  const allLicensesOk =
+    licenses.length > 0 &&
+    licenses.every((lic) => {
+      if (!lic.expiry_date) return false
+      const expiry = parseISO(lic.expiry_date)
+      if (!isValid(expiry)) return false
+      return differenceInDays(expiry, today) > 90
+    })
+
+  const showAllOk = !hasOtherAlerts && allLicensesOk
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white overflow-hidden">
@@ -290,11 +271,57 @@ export function DeadlinePanel({ client, license }: DeadlinePanelProps) {
 
       {open && (
         <div className="p-4 space-y-4">
-          {!hasAlerts ? (
+          {licenses.length > 0 ? (
+            <div className="space-y-2">
+              {licenses.map((lic) => {
+                const expiry = lic.expiry_date ? parseISO(lic.expiry_date) : null
+                const daysLeft =
+                  expiry && isValid(expiry) ? differenceInDays(expiry, today) : null
+                const isExpired = daysLeft !== null && daysLeft < 0
+
+                return (
+                  <div
+                    key={lic.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${licenseIndicatorDot(daysLeft)}`}
+                        aria-hidden
+                      />
+                      <LicenseTypeBadge
+                        licenseType={lic.license_label ?? lic.license_activity}
+                      />
+                      <span className="min-w-0 text-slate-800">
+                        {daysLeft === null
+                          ? 'Нет данных о сроке лицензии'
+                          : isExpired
+                            ? `Лицензия истекла ${Math.abs(daysLeft)} дн. назад`
+                            : `Лицензия действует ещё ${daysLeft} дн.`}
+                      </span>
+                    </div>
+                    {lic.expiry_date && isValid(parseISO(lic.expiry_date)) && (
+                      <span className="shrink-0 text-slate-500 tabular-nums">
+                        {format(parseISO(lic.expiry_date), 'd.MM.yyyy')}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-amber-800 bg-amber-50 rounded-lg border border-amber-200 px-3 py-2">
+              ⚠ Нет данных о сроке лицензии
+            </p>
+          )}
+
+          {showAllOk && (
             <p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 text-center">
               ✅ Все сроки в порядке
             </p>
-          ) : (
+          )}
+
+          {hasOtherAlerts &&
             (['critical', 'warning', 'info'] as AlertLevel[]).map((level) => {
               const rows = grouped[level]
               if (rows.length === 0) return null
@@ -321,8 +348,7 @@ export function DeadlinePanel({ client, license }: DeadlinePanelProps) {
                   </ul>
                 </div>
               )
-            })
-          )}
+            })}
         </div>
       )}
     </section>
