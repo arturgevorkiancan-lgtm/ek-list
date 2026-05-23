@@ -101,8 +101,13 @@ export function ClientsPage() {
   })
 
   const { data: licenses = [] } = useQuery({
-    queryKey: ['licenses'],
-    queryFn: () => fetchLicenses(),
+    queryKey: ['licenses', clients.map(c => c.id)],
+    queryFn: async () => {
+      if (clients.length === 0) return []
+      const all = await Promise.all(clients.map(c => fetchLicenses(c.id)))
+      return all.flat()
+    },
+    enabled: clients.length > 0,
   })
 
   const { data: checklists = [] } = useQuery({
