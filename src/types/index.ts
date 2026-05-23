@@ -181,7 +181,7 @@ export interface ChecklistTemplateItem {
   conditional?: 'customs_warehouse' | 'has_stock'
 }
 
-export type LicenseExpiryStatus = 'expired' | 'warning_6m' | 'warning_95d' | 'ok' | 'none'
+export type LicenseExpiryStatus = 'expired' | 'warning_30d' | 'warning_90d' | 'ok' | 'none'
 
 export interface ClientWithMeta extends Client {
   activeChecklist?: Checklist | null

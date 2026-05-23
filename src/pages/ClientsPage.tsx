@@ -20,7 +20,13 @@ import {
 } from '../lib/api'
 import { parseEgrylUploadFile } from '../lib/parseEgrylFile'
 import { seedDemoDataIfEmpty } from '../lib/seed'
-import { getLicenseExpiryStatus, EXPIRY_COLORS, EXPIRY_DOT, EXPIRY_LABEL } from '../lib/licenseUtils'
+import {
+  getLicenseExpiryStatus,
+  EXPIRY_COLORS,
+  EXPIRY_DOT,
+  EXPIRY_LABEL,
+  EXPIRY_LABEL_CLASS,
+} from '../lib/licenseUtils'
 import { useNotifications } from '../hooks/useNotifications'
 import { useToast } from '../context/ToastContext'
 import { OPERATION_LABELS } from '../data/checklistItems'
@@ -407,9 +413,13 @@ export function ClientsPage() {
                           {format(parseISO(client.latestLicense.expiry_date), 'd MMM yyyy', {
                             locale: ru,
                           })}
-                          <span className="ml-1 text-slate-400">
-                            · {EXPIRY_LABEL[client.expiryStatus]}
-                          </span>
+                          {EXPIRY_LABEL[client.expiryStatus] ? (
+                            <span
+                              className={`ml-1 ${EXPIRY_LABEL_CLASS[client.expiryStatus] || 'text-slate-400'}`}
+                            >
+                              · {EXPIRY_LABEL[client.expiryStatus]}
+                            </span>
+                          ) : null}
                         </>
                       ) : (
                         'Лицензия не указана'
