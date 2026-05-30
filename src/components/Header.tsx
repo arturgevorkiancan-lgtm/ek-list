@@ -16,7 +16,7 @@ import { fetchClients, fetchChecklists, fetchLicenses } from '../lib/api'
 import { fetchUnresolvedConflictCount } from '../lib/conflictApi'
 import { ConflictBadge } from './ConflictBadge'
 import { dispatchOpenConflictsModal } from '../hooks/useDataConflicts'
-import { getLicenseExpiryStatus } from '../lib/licenseUtils'
+import { getClientLicenseExpiryStatus, getNearestExpiringLicense } from '../lib/licenseUtils'
 import { getRecentClientIds } from '../hooks/useRecentClients'
 import { navigateToClientsList } from '../lib/navigation'
 import { ClientSwitcher } from './ClientSwitcher'
@@ -122,17 +122,15 @@ export function Header({ notificationCount = 0, breadcrumb }: HeaderProps) {
   })
 
   const clientsWithMeta: ClientWithMeta[] = clients.map((client) => {
-    const clientLicenses = licenses
-      .filter((l) => l.client_id === client.id)
-      .sort((a, b) => (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''))
-    const latestLicense = clientLicenses[0] ?? null
+    const clientLicenses = licenses.filter((l) => l.client_id === client.id)
+    const latestLicense = getNearestExpiringLicense(clientLicenses)
     const activeChecklist =
       checklists.find((c) => c.client_id === client.id && c.status === 'active') ?? null
     return {
       ...client,
       latestLicense,
       activeChecklist,
-      expiryStatus: getLicenseExpiryStatus(latestLicense),
+      expiryStatus: getClientLicenseExpiryStatus(clientLicenses),
     }
   })
 

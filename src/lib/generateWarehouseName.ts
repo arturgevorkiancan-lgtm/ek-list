@@ -1,23 +1,29 @@
 import { extractCityStreet } from './warehouseAddressMatch'
 
-function capitalizeWord(word: string): string {
-  if (!word) return word
-  return word.charAt(0).toUpperCase() + word.slice(1)
+/** Краткое название: «Город, улица» из адреса. */
+export function formatWarehouseShortTitle(address: string | null | undefined): string | null {
+  const { city, street } = extractCityStreet(address)
+  if (city && street) return `${city}, ${street}`
+  if (city) return city
+  return null
 }
 
-/** Имя склада по адресу; при нескольких адресах в одном городе добавляет улицу. */
-export function generateWarehouseName(address: string, allAddresses: string[]): string {
-  const { city, street } = extractCityStreet(address)
-  const sameCityCount = allAddresses.filter(
-    (a) => extractCityStreet(a).city === city && city,
-  ).length
+/** Имя склада при создании из реестра. */
+export function generateWarehouseName(address: string, _allAddresses?: string[]): string {
+  const short = formatWarehouseShortTitle(address)
+  if (short) return `Склад ${short}`
 
-  if (street && sameCityCount > 1) {
-    const cityPart = city ? `${capitalizeWord(city)}, ` : ''
-    return `Склад ${cityPart}${capitalizeWord(street)}`
-  }
-  if (city) return `Склад ${capitalizeWord(city)}`
+  const trimmed = address.trim()
+  const fallback = trimmed.length > 50 ? `${trimmed.slice(0, 47)}…` : trimmed
+  return `Склад ${fallback}`
+}
 
-  const short = address.length > 50 ? `${address.slice(0, 47)}…` : address
-  return `Склад ${short}`
+/** Заголовок склада в UI: адрес → кратко, иначе сохранённое имя. */
+export function warehouseDisplayTitle(warehouse: {
+  name: string
+  address?: string | null
+}): string {
+  const fromAddress = formatWarehouseShortTitle(warehouse.address)
+  if (fromAddress) return fromAddress
+  return warehouse.name.replace(/^склад\s+/i, '')
 }

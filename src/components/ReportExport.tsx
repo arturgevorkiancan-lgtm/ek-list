@@ -14,6 +14,7 @@ import {
   getApplicableComplianceItems,
   warehouseHasStock,
 } from '../data/warehouseComplianceTemplate'
+import { warehouseDisplayTitle } from '../lib/generateWarehouseName'
 import type { Client, License, OperationType, Warehouse } from '../types'
 
 export interface ReportExportProps {
@@ -58,10 +59,6 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-}
-
-function displayWarehouseName(name: string): string {
-  return name.replace(/^склад\s+/i, '')
 }
 
 function readOpType(clientId: string): OperationType | null {
@@ -274,7 +271,7 @@ export function ReportExport({ client, license, warehouses }: ReportExportProps)
 
     if (sections.storageGost || sections.storageJournal || sections.storageCompliance) {
       for (const w of warehouseRows) {
-        const wname = displayWarehouseName(w.name)
+        const wname = warehouseDisplayTitle(w)
         const address = w.address || '—'
         let wh = `<h2>Склад: ${escapeHtml(wname)}</h2><p class="meta">Адрес (ЕГРН): ${escapeHtml(address)}</p>`
 

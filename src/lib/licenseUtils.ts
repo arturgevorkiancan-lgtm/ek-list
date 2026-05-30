@@ -1,6 +1,41 @@
 import { differenceInDays, parseISO, isValid } from 'date-fns'
 import type { License, LicenseExpiryStatus } from '../types'
 
+const ACTIVE_LICENSE_STATUSES = new Set(['действующая', 'приостановлена'])
+
+export function isActiveLicense(license: License): boolean {
+  const status = license.license_status?.toLowerCase().trim()
+  if (!status) return true
+  if (status === 'аннулирована' || status === 'аннулирован') return false
+  return ACTIVE_LICENSE_STATUSES.has(status) || !license.license_status
+}
+
+/** Лицензии клиента с датой окончания, от ближайшей к дальней. */
+export function getLicensesByNearestExpiry(licenses: License[]): License[] {
+  return [...licenses]
+    .filter((l) => l.expiry_date && isValid(parseISO(l.expiry_date)))
+    .sort((a, b) => (a.expiry_date ?? '').localeCompare(b.expiry_date ?? ''))
+}
+
+/** Ближайшая по сроку лицензия — для карточки клиента и статуса. */
+export function getNearestExpiringLicense(licenses: License[]): License | null {
+  const withExpiry = getLicensesByNearestExpiry(licenses)
+  if (withExpiry.length === 0) return licenses[0] ?? null
+
+  const active = withExpiry.filter(isActiveLicense)
+  return active[0] ?? withExpiry[0]
+}
+
+export function getClientLicenseExpiryStatus(licenses: License[]): LicenseExpiryStatus {
+  return getLicenseExpiryStatus(getNearestExpiringLicense(licenses))
+}
+
+export function nearestExpiryDays(licenses: License[]): number | null {
+  const nearest = getNearestExpiringLicense(licenses)
+  if (!nearest?.expiry_date || !isValid(parseISO(nearest.expiry_date))) return null
+  return differenceInDays(parseISO(nearest.expiry_date), new Date())
+}
+
 export function getLicenseExpiryStatus(license: License | null | undefined): LicenseExpiryStatus {
   if (!license?.expiry_date) return 'none'
   const expiry = parseISO(license.expiry_date)

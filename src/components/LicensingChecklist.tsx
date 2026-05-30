@@ -259,7 +259,7 @@ export function LicensingChecklist({ client, license, warehouses }: LicensingChe
         nextItems[String(item.id)] = data.items[String(item.id)] ?? defaultItemState()
       }
       setItems(nextItems)
-      setCollapsed(data.collapsed ?? {})
+      setCollapsed({})
       setCommentOpen(new Set())
       setDateOpen(new Set())
     },
@@ -303,13 +303,15 @@ export function LicensingChecklist({ client, license, warehouses }: LicensingChe
   const toggleBlock = (blockNum: number) => {
     const key = String(blockNum)
     setCollapsed((prev) => {
-      const next = { ...prev, [key]: !prev[key] }
+      const isCurrentlyCollapsed = prev[key] !== false
+      const next = { ...prev, [key]: isCurrentlyCollapsed ? false : true }
       persist(items, next)
       return next
     })
   }
 
   const handleOperationChange = (op: OperationType) => {
+    setCollapsed({})
     setOperationType(op)
     writeOpType(client.id, op)
   }
@@ -619,7 +621,7 @@ export function LicensingChecklist({ client, license, warehouses }: LicensingChe
             {visibleBlocks.map(({ block, items: blockItems, deferred }) => {
               if (blockItems.length === 0 && !deferred) return null
               const blockKey = String(block.num)
-              const isCollapsed = collapsed[blockKey] ?? true
+              const isCollapsed = collapsed[blockKey] !== false
               const checkableInBlock = blockItems.filter((i) => i.mode !== 'info')
               const blockDone = checkableInBlock.filter(
                 (i) => items[String(i.id)]?.status === 'done',

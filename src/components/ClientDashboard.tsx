@@ -19,6 +19,11 @@ import {
 import { ru } from 'date-fns/locale'
 import { DeadlinePanel } from './DeadlinePanel'
 import { LicenseTypeBadge } from './LicenseTypeBadge'
+import { warehouseDisplayTitle } from '../lib/generateWarehouseName'
+import {
+  getNearestExpiringLicense,
+  nearestExpiryDays,
+} from '../lib/licenseUtils'
 import {
   countComplianceDone,
   getComplianceTotal,
@@ -66,10 +71,6 @@ type ActivityEvent = {
 type LicenseBadge = {
   label: string
   className: string
-}
-
-function displayWarehouseName(name: string): string {
-  return name.replace(/^склад\s+/i, '')
 }
 
 function RequisitesLine({ client }: { client: Client }) {
@@ -195,43 +196,21 @@ function formatRelativeActivity(date: Date): string {
   return `${days} дн назад`
 }
 
-function getLatestLicense(licenses: License[]): License | null {
-  if (licenses.length === 0) return null
-  const active = licenses.filter(
-    (l) => l.license_status === 'действующая' || l.license_status === 'приостановлена',
-  )
-  const pool = active.length > 0 ? active : licenses
-  return [...pool].sort((a, b) =>
-    (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''),
-  )[0]
-}
-
 function getActiveLicenses(licenses: License[]): License[] {
   return licenses
     .filter(
       (l) =>
         l.license_status === 'действующая' || l.license_status === 'приостановлена',
     )
-    .sort((a, b) => (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''))
+    .sort((a, b) => (a.expiry_date ?? '').localeCompare(b.expiry_date ?? ''))
 }
 
 function getOverviewLicenses(licenses: License[]): License[] {
   const active = getActiveLicenses(licenses)
   if (active.length > 0) return active
   if (licenses.length === 0) return []
-  return [...licenses]
-    .sort((a, b) => (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''))
-    .slice(0, 1)
-}
-
-function nearestExpiryDays(licenses: License[]): number | null {
-  const dates = licenses
-    .map((l) => l.expiry_date)
-    .filter((d): d is string => Boolean(d))
-    .map((d) => parseISO(d))
-  if (dates.length === 0) return null
-  const nearest = dates.sort((a, b) => a.getTime() - b.getTime())[0]
-  return differenceInDays(nearest, new Date())
+  const nearest = getNearestExpiringLicense(licenses)
+  return nearest ? [nearest] : []
 }
 
 function getLicenseBadge(licenses: License[]): LicenseBadge {
@@ -333,10 +312,10 @@ export function ClientDashboard({
   }
 
   const displayName = client.short_name?.trim() || client.name
-  const latestLicense = getLatestLicense(licenses)
+  const nearestLicense = getNearestExpiringLicense(licenses)
   const activeLicenses = getActiveLicenses(licenses)
   const deadlineLicenses =
-    activeLicenses.length > 0 ? activeLicenses : latestLicense ? [latestLicense] : []
+    activeLicenses.length > 0 ? activeLicenses : nearestLicense ? [nearestLicense] : []
   const overviewLicenses = getOverviewLicenses(licenses)
   const badge = getLicenseBadge(licenses)
   const warehouseCount = warehouses.length
@@ -388,7 +367,7 @@ export function ClientDashboard({
     const events: ActivityEvent[] = []
 
     for (const w of warehouses) {
-      const name = displayWarehouseName(w.name)
+      const name = warehouseDisplayTitle(w)
       for (const r of readReadings(w.id)) {
         events.push({
           at: parseISO(r.recorded_at).getTime(),
@@ -481,12 +460,12 @@ export function ClientDashboard({
                   onClick={onEditLicense}
                   className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
                 >
-                  {latestLicense ? (
+                  {licenses.length > 0 ? (
                     <Pencil className="h-3 w-3" />
                   ) : (
                     <Plus className="h-3 w-3" />
                   )}
-                  {latestLicense ? 'Редактировать' : 'Добавить лицензию'}
+                  {licenses.length > 0 ? 'Редактировать' : 'Добавить лицензию'}
                 </button>
               )}
             </div>
@@ -535,7 +514,7 @@ export function ClientDashboard({
                 className="snap-start shrink-0 w-[min(100%,280px)] md:w-auto rounded-xl border border-slate-200 bg-white p-4 text-left hover:border-brand-300 hover:shadow-sm transition"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <p className="font-bold text-slate-900">{displayWarehouseName(w.name)}</p>
+                  <p className="font-bold text-slate-900">{warehouseDisplayTitle(w)}</p>
                   {stale && (
                     <span
                       className="h-2.5 w-2.5 rounded-full bg-orange-500 shrink-0 mt-1.5"

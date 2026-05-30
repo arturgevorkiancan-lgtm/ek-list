@@ -59,6 +59,7 @@ import {
   type WarehouseSectionId,
 } from '../lib/collapsibleStorage'
 import { CopyOnClick } from './CopyOnClick'
+import { warehouseDisplayTitle } from '../lib/generateWarehouseName'
 import { LicenseTypeBadge } from './LicenseTypeBadge'
 import { OrganizationEgrylBlock } from './OrganizationEgrylBlock'
 import { RegistryBlock } from './RegistryBlock'
@@ -147,11 +148,6 @@ type KppSuggestion = {
 
 function normalizeCadastral(value: string): string {
   return value.replace(/\s/g, '').trim()
-}
-
-/** Strip leading "Склад " for card header only; stored name is unchanged. */
-function displayWarehouseName(name: string): string {
-  return name.replace(/^склад\s+/i, '')
 }
 
 function buildBulkStorageCsv(
@@ -1291,7 +1287,7 @@ export function WarehouseDocumentsSection({
                               <LicenseTypeBadge licenseType={w.license_type} />
                               <WarehouseIcon className="h-4 w-4 text-brand-600 shrink-0" />
                               <span className="font-semibold text-slate-900">
-                                {displayWarehouseName(w.name)}
+                                {warehouseDisplayTitle(w)}
                               </span>
                               {suspiciousName && (
                                 <span
@@ -1498,7 +1494,7 @@ export function WarehouseDocumentsSection({
                                 <span className="font-mono font-medium">
                                   {opContext.parsed.kppOP}
                                 </span>{' '}
-                                для склада «{displayWarehouseName(opTargetWarehouse.name)}»?
+                                для склада «{warehouseDisplayTitle(opTargetWarehouse)}»?
                               </span>
                             </label>
                           </div>

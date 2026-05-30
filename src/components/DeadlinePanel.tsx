@@ -3,6 +3,7 @@ import { differenceInDays, format, isValid, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { LicenseTypeBadge } from './LicenseTypeBadge'
+import { warehouseDisplayTitle } from '../lib/generateWarehouseName'
 import { LICENSING_ITEM_TITLES } from '../data/licensingChecklistTemplate'
 import type { Client, Document, License, OperationType, Warehouse } from '../types'
 
@@ -84,10 +85,6 @@ function getLatestReadingAt(warehouseId: string): string | null {
   }
 }
 
-function displayWarehouseName(name: string): string {
-  return name.replace(/^склад\s+/i, '')
-}
-
 const LEVEL_STYLES: Record<AlertLevel, string> = {
   critical: 'border-red-200 bg-red-50/80',
   warning: 'border-orange-200 bg-orange-50/80',
@@ -160,7 +157,7 @@ export function DeadlinePanel({ client, licenses }: DeadlinePanelProps) {
 
     const warehouses = readLocalWarehouses(client.id)
     for (const w of warehouses) {
-      const name = displayWarehouseName(w.name)
+      const name = warehouseDisplayTitle(w)
       const latestAt = getLatestReadingAt(w.id)
       if (!latestAt) {
         list.push({

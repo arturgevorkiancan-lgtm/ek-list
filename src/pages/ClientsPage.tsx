@@ -21,7 +21,8 @@ import {
 import { parseEgrylUploadFile } from '../lib/parseEgrylFile'
 import { seedDemoDataIfEmpty } from '../lib/seed'
 import {
-  getLicenseExpiryStatus,
+  getClientLicenseExpiryStatus,
+  getNearestExpiringLicense,
   EXPIRY_COLORS,
   EXPIRY_DOT,
   EXPIRY_LABEL,
@@ -171,10 +172,8 @@ export function ClientsPage() {
 
   const clientsWithMeta: ClientWithMeta[] = useMemo(() => {
     return clients.map((client) => {
-      const clientLicenses = licenses
-        .filter((l) => l.client_id === client.id)
-        .sort((a, b) => (b.expiry_date ?? '').localeCompare(a.expiry_date ?? ''))
-      const latestLicense = clientLicenses[0] ?? null
+      const clientLicenses = licenses.filter((l) => l.client_id === client.id)
+      const latestLicense = getNearestExpiringLicense(clientLicenses)
       const activeChecklist =
         checklists.find((c) => c.client_id === client.id && c.status === 'active') ?? null
 
@@ -182,7 +181,7 @@ export function ClientsPage() {
         ...client,
         latestLicense,
         activeChecklist,
-        expiryStatus: getLicenseExpiryStatus(latestLicense),
+        expiryStatus: getClientLicenseExpiryStatus(clientLicenses),
       }
     })
   }, [clients, licenses, checklists])
@@ -409,6 +408,14 @@ export function ClientsPage() {
                     <p className="mt-3 text-xs text-slate-500">
                       {client.latestLicense?.expiry_date ? (
                         <>
+                          {client.latestLicense.license_label ||
+                          client.latestLicense.license_type ? (
+                            <span className="text-slate-600">
+                              {client.latestLicense.license_label ||
+                                client.latestLicense.license_type}
+                              {' · '}
+                            </span>
+                          ) : null}
                           Лицензия до{' '}
                           {format(parseISO(client.latestLicense.expiry_date), 'd MMM yyyy', {
                             locale: ru,
