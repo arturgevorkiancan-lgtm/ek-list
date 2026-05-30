@@ -3,28 +3,47 @@ const FEDERAL_CITIES = ['Москва', 'Санкт-Петербург', 'Сев
 const FEDERAL_CITY_RE =
   /\b(Москва|Санкт[\s-]?Петербург(?:а)?|Севастополь)(?:\b|\s+Город\b)/i
 
+/** «г. Москва» — не «г.о.» и не «г. муниципальный». */
 const GO_CITY_RE =
-  /(?:^|[,\s])г\.\s*(?!муниципальн)([А-ЯЁа-яё][А-ЯЁа-яё\-]+?)(?=[,\s]|$)/i
+  /(?:^|[,\s])г\.\s+(?!о\.|муниципальн)([А-ЯЁа-яё]{2,}[А-ЯЁа-яё\-]*)/i
 
 const GO_DISTRICT_CITY_RE =
-  /(?:^|[,\s])г\.о\.\s*([А-ЯЁа-яё][А-ЯЁа-яё\-]+?)(?=[,\s]|$)/i
+  /(?:^|[,\s])г\.о\.\s*([А-ЯЁа-яё]{2,}[А-ЯЁа-яё\-]*)/i
 
+/** «ул. Ленина», «шоссе Энтузиастов» — только явные сокращения с точкой и пробелом. */
 const STREET_PREFIX_RE =
-  /(?:^|[,\s])(?:ул\.?|улица|пр\.?|проспект|пр-т|ш\.?|шоссе|пер\.?|переулок|б-р|бульвар|наб\.?|набережная|проезд|аллея)\s*\.?\s*([А-ЯЁа-яё0-9][А-ЯЁа-яё0-9\-\.]*)/i
+  /(?:^|[,\s])(?:улица|проспект|переулок|шоссе|бульвар|набережная|проезд|аллея|пр-т|(?:ул|пр|пер|ш|наб|б-р)\.\s+)([А-ЯЁа-яё0-9][А-ЯЁа-яё0-9\-\.]*)/i
 
+/** «Горское шоссе», «Ленина ул.» */
 const STREET_SUFFIX_RE =
-  /([А-ЯЁа-яё][А-ЯЁа-яё\-\.]+)\s+(?:ул\.?|улица|ш\.?|шоссе|пр\.?|проспект|пр-т|пер\.?|переулок)/i
+  /([А-ЯЁа-яё][А-ЯЁа-яё\-\.]+)\s+(ул\.?|улица|шоссе|ш\.(?=\s|,|$)|пр\.(?=\s|,|$)|проспект|пр-т|пер\.(?=\s|,|$)|переулок|б-р|бульвар|наб\.(?=\s|,|$)|набережная)/i
 
 const TERRITORY_RE =
-  /(?:^|[,\s])(?:тер\.|территория)\s+([А-ЯЁа-яё0-9][А-ЯЁа-яё0-9\-\.\s]*?)(?=[,\s]|$)/i
+  /(?:^|[,\s])(?:территория\s+|тер\.\s+(?!г\.))([А-ЯЁа-яё0-9][А-ЯЁа-яё0-9\-\.\s]*?)(?=[,\s]|$)/i
 
 const SETTLEMENT_RE =
-  /(?:^|[,\s])(?:пос\.|поселок|п\.)\s*([А-ЯЁа-яё][А-ЯЁа-яё\-]+)/i
+  /(?:^|[,\s])(?:пос\.|поселок)\s+([А-ЯЁа-яё]{2,}[А-ЯЁа-яё\-]*)/i
 
 const MUNICIPAL_DISTRICT_RE =
-  /муниципальный\s+округ\s+([А-ЯЁа-яё][А-ЯЁа-яё\-]+)/i
+  /муниципальный\s+округ\s+([А-ЯЁа-яё]{2,}[А-ЯЁа-яё\-]*)/i
 
 const HOUSE_RE = /(?:^|[,\s])д\.\s*([0-9]+[А-ЯЁа-яё]?)/i
+
+const STREET_TYPE_LABEL: Record<string, string> = {
+  ул: 'ул.',
+  улица: 'улица',
+  ш: 'шоссе',
+  шоссе: 'шоссе',
+  пр: 'пр.',
+  проспект: 'проспект',
+  'пр-т': 'пр-т',
+  пер: 'пер.',
+  переулок: 'переулок',
+  'б-р': 'б-р',
+  бульвар: 'бульвар',
+  наб: 'наб.',
+  набережная: 'набережная',
+}
 
 function normalizeToken(value: string): string {
   return value
@@ -39,12 +58,25 @@ function capitalizeWord(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
+function isValidStreetToken(value: string): boolean {
+  const token = normalizeToken(value)
+  return token.length >= 2
+}
+
 function normalizeFederalCity(raw: string): string {
   const lower = raw.toLowerCase().replace(/\s+/g, ' ').trim()
   if (lower.startsWith('санкт')) return 'Санкт-Петербург'
   if (lower.startsWith('москв')) return 'Москва'
   if (lower.startsWith('севастопол')) return 'Севастополь'
   return capitalizeWord(raw.replace(/а$/i, ''))
+}
+
+function formatStreetSuffix(name: string, typeRaw: string): string {
+  const namePart = capitalizeWord(normalizeToken(name))
+  const typeKey = normalizeToken(typeRaw)
+  const label = STREET_TYPE_LABEL[typeKey] ?? typeRaw.trim()
+  if (label.endsWith('.')) return `${namePart} ${label}`
+  return `${namePart} ${label}`
 }
 
 function extractCity(text: string): string | null {
@@ -70,13 +102,20 @@ function extractCity(text: string): string | null {
 }
 
 function extractStreet(text: string): string | null {
-  const prefix = text.match(STREET_PREFIX_RE) ?? text.match(STREET_SUFFIX_RE)
-  if (prefix?.[1]) return capitalizeWord(normalizeToken(prefix[1]))
+  const suffix = text.match(STREET_SUFFIX_RE)
+  if (suffix?.[1] && suffix[2] && isValidStreetToken(suffix[1])) {
+    return formatStreetSuffix(suffix[1], suffix[2])
+  }
+
+  const prefix = text.match(STREET_PREFIX_RE)
+  if (prefix?.[1] && isValidStreetToken(prefix[1])) {
+    return capitalizeWord(normalizeToken(prefix[1]))
+  }
 
   const territory = text.match(TERRITORY_RE)
   if (territory?.[1]) {
     const raw = territory[1].trim()
-    if (raw.length <= 40) return capitalizeWord(raw)
+    if (raw.length >= 2 && raw.length <= 40) return capitalizeWord(raw)
   }
 
   const settlement = text.match(SETTLEMENT_RE)
