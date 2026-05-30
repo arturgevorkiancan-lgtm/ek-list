@@ -1,11 +1,8 @@
-import { extractCityStreet } from './warehouseAddressMatch'
+import { formatAddressShortTitleFromRaw } from './addressParser/parseAddress'
 
 /** Краткое название: «Город, улица» из адреса. */
 export function formatWarehouseShortTitle(address: string | null | undefined): string | null {
-  const { city, street } = extractCityStreet(address)
-  if (city && street) return `${city}, ${street}`
-  if (city) return city
-  return null
+  return formatAddressShortTitleFromRaw(address)
 }
 
 /** Имя склада при создании из реестра. */
