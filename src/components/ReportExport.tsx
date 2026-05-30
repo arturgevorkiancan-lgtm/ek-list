@@ -5,6 +5,15 @@ import { X } from 'lucide-react'
 import { parseProductTypes } from './StorageJournal'
 import { GOST_DATA, type ProductType } from './StorageStandardsCard'
 import { computeSafeRange } from '../lib/storageUtils'
+import {
+  getCheckableItems,
+  getItemsForOperation,
+  LICENSING_BLOCKS,
+} from '../data/licensingChecklistTemplate'
+import {
+  getApplicableComplianceItems,
+  warehouseHasStock,
+} from '../data/warehouseComplianceTemplate'
 import type { Client, License, OperationType, Warehouse } from '../types'
 
 export interface ReportExportProps {
@@ -28,92 +37,11 @@ type ReportSections = {
 
 type ItemStatus = 'pending' | 'done' | 'na'
 
-type LicensingItemDef = {
-  id: number
-  block: number
-  title: string
-  operationTypes?: OperationType[]
+
+function blockApplies(block: { operationTypes?: OperationType[] }, op: OperationType): boolean {
+  if (!block.operationTypes) return true
+  return block.operationTypes.includes(op)
 }
-
-const LICENSE_BLOCK_OPS: OperationType[] = [
-  'ПЕРЕОФОРМЛЕНИЕ',
-  'ПРОДЛЕНИЕ',
-  'ПРОВЕРКА_ВЫЕЗДНАЯ',
-  'ПРОВЕРКА_ВНЕПЛАНОВАЯ',
-]
-
-const INSPECTION_OPS: OperationType[] = ['ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ']
-
-const LICENSING_BLOCKS = [
-  { num: 1, title: 'Корпоративные документы' },
-  { num: 2, title: 'Уставный капитал' },
-  { num: 3, title: 'Реестры и выписки' },
-  { num: 4, title: 'Обособленное подразделение и склад' },
-  { num: 5, title: 'Технические требования' },
-  { num: 6, title: 'ЕГАИС' },
-  { num: 7, title: 'Лицензия', operationTypes: LICENSE_BLOCK_OPS },
-  { num: 8, title: 'Дополнительно для проверок', operationTypes: INSPECTION_OPS },
-]
-
-const LICENSING_ITEMS: LicensingItemDef[] = [
-  { id: 1, block: 1, title: 'Устав (последняя редакция)' },
-  { id: 2, block: 1, title: 'Свидетельство ОГРН / Лист записи ЕГРЮЛ' },
-  { id: 3, block: 1, title: 'Свидетельство ИНН' },
-  { id: 4, block: 1, title: 'Лист записи ГРН к Уставу (при наличии изменений)' },
-  { id: 5, block: 1, title: 'Решение о создании юридического лица' },
-  { id: 6, block: 1, title: 'Решение об увеличении уставного капитала (при наличии)' },
-  { id: 7, block: 1, title: 'Решение о внесении изменений в Устав (при наличии)' },
-  { id: 8, block: 1, title: 'Решение о назначении генерального директора' },
-  { id: 9, block: 1, title: 'Приказ о назначении генерального директора' },
-  { id: 10, block: 1, title: 'Копия паспорта генерального директора (стр. 1 и прописка)' },
-  { id: 11, block: 1, title: 'Приказ о назначении главного бухгалтера (если бухгалтер ≠ ГД)' },
-  { id: 12, block: 2, title: 'Платёжные документы об оплате УК' },
-  { id: 13, block: 2, title: 'Справка банка о зачислении средств в оплату УК' },
-  {
-    id: 14,
-    block: 2,
-    title: 'Баланс за последний отчётный период (если компания открыта ранее текущего года)',
-  },
-  { id: 15, block: 2, title: 'Расчёт оценки стоимости чистых активов' },
-  { id: 16, block: 3, title: 'Выписка из ЕГРЮЛ (не старше 1 месяца)' },
-  { id: 17, block: 3, title: 'Выписка из ЕГРН (Росреестр)' },
-  { id: 18, block: 4, title: 'Уведомление о постановке на учёт обособленного подразделения' },
-  { id: 19, block: 4, title: 'Договор аренды складского помещения (со всеми доп. соглашениями)' },
-  { id: 20, block: 4, title: 'Выписка из ЕГРН на складское помещение' },
-  { id: 21, block: 4, title: 'Технический паспорт / технический план помещения' },
-  { id: 22, block: 4, title: 'Документы на гигрометры (свидетельства о поверке)' },
-  { id: 23, block: 4, title: 'Документы на термометры (свидетельства о поверке)' },
-  { id: 24, block: 5, title: 'Охранная сигнализация — договор обслуживания или акт проверки' },
-  { id: 25, block: 5, title: 'Пожарная сигнализация — договор обслуживания или акт проверки' },
-  { id: 26, block: 5, title: 'Стеллажи и поддоны установлены (нижний ярус ≥ 15 см от пола)' },
-  { id: 27, block: 5, title: 'Расстояние от стен ≥ 0,5 м соблюдено' },
-  { id: 28, block: 6, title: 'Договор с ОФД' },
-  { id: 29, block: 6, title: 'ЕГАИС подключён и работает' },
-  { id: 30, block: 6, title: 'Сканер штрихкодов (2D) — наличие' },
-  { id: 31, block: 7, title: 'Действующая лицензия (оригинал или копия)', operationTypes: LICENSE_BLOCK_OPS },
-  { id: 32, block: 7, title: 'Предыдущие лицензии (при наличии, для истории)', operationTypes: LICENSE_BLOCK_OPS },
-  { id: 33, block: 8, title: 'Журнал учёта условий хранения (ведётся, актуален)', operationTypes: INSPECTION_OPS },
-  { id: 34, block: 8, title: 'Журнал входящего контроля продукции', operationTypes: INSPECTION_OPS },
-  { id: 35, block: 8, title: 'Договоры поставки с поставщиками (выборочно)', operationTypes: INSPECTION_OPS },
-  { id: 36, block: 8, title: 'Товарные накладные / УПД за последние 3 месяца', operationTypes: INSPECTION_OPS },
-]
-
-const COMPLIANCE_ROWS = [
-  { id: 'thermometer', text: 'Термометр установлен и поверен' },
-  { id: 'hygrometer', text: 'Гигрометр установлен и поверен' },
-  { id: 'journal_kept', text: 'Журнал учёта условий хранения ведётся' },
-  { id: 'pallets', text: 'Нижний ярус продукции на поддонах' },
-  { id: 'wall_distance', text: 'Расстояние от стен ≥ 0,5 м' },
-  { id: 'aisle_width', text: 'Ширина проходов ≥ 0,5 м' },
-  { id: 'no_sunlight', text: 'Прямой солнечный свет не попадает' },
-  { id: 'ventilation_ok', text: 'Вентиляция функционирует' },
-  { id: 'fire_alarm', text: 'Пожарная сигнализация' },
-  { id: 'security_alarm', text: 'Охранная сигнализация' },
-  { id: 'temp_in_range', text: 'Температура в норме' },
-  { id: 'humidity_in_range', text: 'Влажность в норме' },
-  { id: 'no_foreign_smell', text: 'Посторонние запахи отсутствуют' },
-  { id: 'egais_connected', text: 'ЕГАИС подключён' },
-] as const
 
 const DEFAULT_SECTIONS: ReportSections = {
   clientInfo: true,
@@ -155,16 +83,6 @@ function readLicensingState(clientId: string, op: OperationType) {
   } catch {
     return { items: {} }
   }
-}
-
-function itemApplies(item: LicensingItemDef, op: OperationType): boolean {
-  if (!item.operationTypes) return true
-  return item.operationTypes.includes(op)
-}
-
-function blockApplies(block: { operationTypes?: OperationType[] }, op: OperationType): boolean {
-  if (!block.operationTypes) return true
-  return block.operationTypes.includes(op)
 }
 
 function statusSymbol(status: ItemStatus | undefined): string {
@@ -240,7 +158,7 @@ export function ReportExport({ client, license, warehouses }: ReportExportProps)
 
   const licensingProgress = useMemo(() => {
     if (!operationType) return { done: 0, total: 0, pct: 0 }
-    const items = LICENSING_ITEMS.filter((i) => itemApplies(i, operationType))
+    const items = getCheckableItems(operationType)
     const state = readLicensingState(client.id, operationType).items
     const applicable = items.filter((i) => (state[String(i.id)]?.status ?? 'pending') !== 'na')
     const done = applicable.filter((i) => state[String(i.id)]?.status === 'done').length
@@ -333,8 +251,8 @@ export function ReportExport({ client, license, warehouses }: ReportExportProps)
       const state = readLicensingState(client.id, operationType).items
       let blockHtml = ''
       for (const block of LICENSING_BLOCKS.filter((b) => blockApplies(b, operationType))) {
-        const blockItems = LICENSING_ITEMS.filter(
-          (i) => i.block === block.num && itemApplies(i, operationType),
+        const blockItems = getItemsForOperation(operationType).filter(
+          (i) => i.block === block.num && i.mode !== 'info',
         )
         if (blockItems.length === 0) continue
         const rows = blockItems
@@ -411,13 +329,17 @@ export function ReportExport({ client, license, warehouses }: ReportExportProps)
 
         if (sections.storageCompliance) {
           const comp = readCompliance(w.id)
-          const rows = COMPLIANCE_ROWS.map(
-            (row) => `<tr>
+          const hasStock = warehouseHasStock(w.product_types)
+          const complianceRows = getApplicableComplianceItems(hasStock)
+          const rows = complianceRows
+            .map(
+              (row) => `<tr>
               <td>${escapeHtml(row.text)}</td>
               <td>${complianceStatusLabel(comp[row.id]?.status)}</td>
             </tr>`,
-          ).join('')
-          wh += `<h3>Чеклист условий хранения</h3>
+            )
+            .join('')
+          wh += `<h3>Требования 289н и условия хранения</h3>
             <table><thead><tr><th>Пункт</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table>`
         }
 
@@ -430,7 +352,7 @@ export function ReportExport({ client, license, warehouses }: ReportExportProps)
       const state = readLicensingState(client.id, operationType).items
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-      for (const item of LICENSING_ITEMS.filter((i) => itemApplies(i, operationType))) {
+      for (const item of getCheckableItems(operationType)) {
         const st = state[String(item.id)]
         if (!st || st.status === 'done' || st.status === 'na') continue
         if (st.dueDate && isValid(parseISO(st.dueDate)) && parseISO(st.dueDate) < today) {

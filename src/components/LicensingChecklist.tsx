@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format, isValid, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
@@ -7,10 +7,23 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
+  Info,
   MessageSquare,
+  Upload,
   XCircle,
 } from 'lucide-react'
 import { checklistItemRowClass } from '../lib/checklistStatusStyles'
+import {
+  getCheckableItems,
+  getItemsForOperation,
+  isBlockDeferred,
+  itemApplies,
+  LICENSING_BLOCKS,
+  LICENSING_ITEMS,
+  OPERATION_LABELS,
+  OPERATION_OPTIONS,
+  type LicensingItemDef,
+} from '../data/licensingChecklistTemplate'
 import type { Client, License, OperationType, Warehouse } from '../types'
 
 export interface LicensingChecklistProps {
@@ -20,20 +33,6 @@ export interface LicensingChecklistProps {
 }
 
 type ItemStatus = 'pending' | 'done' | 'na'
-
-interface LicensingItemDef {
-  id: number
-  block: number
-  title: string
-  /** If set, item only applies to these operation types */
-  operationTypes?: OperationType[]
-}
-
-interface LicensingBlockDef {
-  num: number
-  title: string
-  operationTypes?: OperationType[]
-}
 
 interface ItemState {
   status: ItemStatus
@@ -47,129 +46,10 @@ interface PersistedChecklist {
   collapsed: Record<string, boolean>
 }
 
-const OPERATION_OPTIONS: {
-  value: OperationType
-  label: string
-  description: string
-}[] = [
-  { value: 'ПОЛУЧЕНИЕ', label: 'ПОЛУЧЕНИЕ', description: 'новая лицензия' },
-  {
-    value: 'ПЕРЕОФОРМЛЕНИЕ',
-    label: 'ПЕРЕОФОРМЛЕНИЕ',
-    description: 'смена адреса / наименования / реорганизация',
-  },
-  { value: 'ПРОДЛЕНИЕ', label: 'ПРОДЛЕНИЕ', description: 'продление срока лицензии' },
-  { value: 'ПРОВЕРКА_ВЫЕЗДНАЯ', label: 'ПРОВЕРКА_ВЫЕЗДНАЯ', description: 'выездная оценка РАТК' },
-  {
-    value: 'ПРОВЕРКА_ВНЕПЛАНОВАЯ',
-    label: 'ПРОВЕРКА_ВНЕПЛАНОВАЯ',
-    description: 'внеплановая проверка',
-  },
-]
-
-const OPERATION_LABELS: Record<OperationType, string> = {
-  ПОЛУЧЕНИЕ: 'Получение лицензии',
-  ПЕРЕОФОРМЛЕНИЕ: 'Переоформление',
-  ПРОДЛЕНИЕ: 'Продление',
-  ПРОВЕРКА_ВЫЕЗДНАЯ: 'Выездная проверка РАТК',
-  ПРОВЕРКА_ВНЕПЛАНОВАЯ: 'Внеплановая проверка',
+interface FormFiles {
+  templateName?: string
+  clientFileName?: string
 }
-
-const LICENSE_BLOCK_OPS: OperationType[] = [
-  'ПЕРЕОФОРМЛЕНИЕ',
-  'ПРОДЛЕНИЕ',
-  'ПРОВЕРКА_ВЫЕЗДНАЯ',
-  'ПРОВЕРКА_ВНЕПЛАНОВАЯ',
-]
-
-const INSPECTION_OPS: OperationType[] = ['ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ']
-
-const BLOCKS: LicensingBlockDef[] = [
-  { num: 1, title: 'Корпоративные документы' },
-  { num: 2, title: 'Уставный капитал' },
-  { num: 3, title: 'Реестры и выписки' },
-  { num: 4, title: 'Обособленное подразделение и склад' },
-  { num: 5, title: 'Технические требования' },
-  { num: 6, title: 'ЕГАИС' },
-  { num: 7, title: 'Лицензия', operationTypes: LICENSE_BLOCK_OPS },
-  { num: 8, title: 'Дополнительно для проверок', operationTypes: INSPECTION_OPS },
-]
-
-const ITEMS: LicensingItemDef[] = [
-  { id: 1, block: 1, title: 'Устав (последняя редакция)' },
-  { id: 2, block: 1, title: 'Свидетельство ОГРН / Лист записи ЕГРЮЛ' },
-  { id: 3, block: 1, title: 'Свидетельство ИНН' },
-  { id: 4, block: 1, title: 'Лист записи ГРН к Уставу (при наличии изменений)' },
-  { id: 5, block: 1, title: 'Решение о создании юридического лица' },
-  { id: 6, block: 1, title: 'Решение об увеличении уставного капитала (при наличии)' },
-  { id: 7, block: 1, title: 'Решение о внесении изменений в Устав (при наличии)' },
-  { id: 8, block: 1, title: 'Решение о назначении генерального директора' },
-  { id: 9, block: 1, title: 'Приказ о назначении генерального директора' },
-  { id: 10, block: 1, title: 'Копия паспорта генерального директора (стр. 1 и прописка)' },
-  { id: 11, block: 1, title: 'Приказ о назначении главного бухгалтера (если бухгалтер ≠ ГД)' },
-  { id: 12, block: 2, title: 'Платёжные документы об оплате УК' },
-  { id: 13, block: 2, title: 'Справка банка о зачислении средств в оплату УК' },
-  {
-    id: 14,
-    block: 2,
-    title: 'Баланс за последний отчётный период (если компания открыта ранее текущего года)',
-  },
-  { id: 15, block: 2, title: 'Расчёт оценки стоимости чистых активов' },
-  { id: 16, block: 3, title: 'Выписка из ЕГРЮЛ (не старше 1 месяца)' },
-  { id: 17, block: 3, title: 'Выписка из ЕГРН (Росреестр)' },
-  { id: 18, block: 4, title: 'Уведомление о постановке на учёт обособленного подразделения' },
-  { id: 19, block: 4, title: 'Договор аренды складского помещения (со всеми доп. соглашениями)' },
-  { id: 20, block: 4, title: 'Выписка из ЕГРН на складское помещение' },
-  { id: 21, block: 4, title: 'Технический паспорт / технический план помещения' },
-  { id: 22, block: 4, title: 'Документы на гигрометры (свидетельства о поверке)' },
-  { id: 23, block: 4, title: 'Документы на термометры (свидетельства о поверке)' },
-  {
-    id: 24,
-    block: 5,
-    title: 'Охранная сигнализация — договор обслуживания или акт проверки',
-  },
-  {
-    id: 25,
-    block: 5,
-    title: 'Пожарная сигнализация — договор обслуживания или акт проверки',
-  },
-  { id: 26, block: 5, title: 'Стеллажи и поддоны установлены (нижний ярус ≥ 15 см от пола)' },
-  { id: 27, block: 5, title: 'Расстояние от стен ≥ 0,5 м соблюдено' },
-  { id: 28, block: 6, title: 'Договор с ОФД' },
-  { id: 29, block: 6, title: 'ЕГАИС подключён и работает' },
-  { id: 30, block: 6, title: 'Сканер штрихкодов (2D) — наличие' },
-  {
-    id: 31,
-    block: 7,
-    title: 'Действующая лицензия (оригинал или копия)',
-    operationTypes: LICENSE_BLOCK_OPS,
-  },
-  {
-    id: 32,
-    block: 7,
-    title: 'Предыдущие лицензии (при наличии, для истории)',
-    operationTypes: LICENSE_BLOCK_OPS,
-  },
-  {
-    id: 33,
-    block: 8,
-    title: 'Журнал учёта условий хранения (ведётся, актуален)',
-    operationTypes: INSPECTION_OPS,
-  },
-  { id: 34, block: 8, title: 'Журнал входящего контроля продукции', operationTypes: INSPECTION_OPS },
-  {
-    id: 35,
-    block: 8,
-    title: 'Договоры поставки с поставщиками (выборочно)',
-    operationTypes: INSPECTION_OPS,
-  },
-  {
-    id: 36,
-    block: 8,
-    title: 'Товарные накладные / УПД за последние 3 месяца',
-    operationTypes: INSPECTION_OPS,
-  },
-]
 
 function opTypeKey(clientId: string): string {
   return `checklist_optype_${clientId}`
@@ -177,6 +57,10 @@ function opTypeKey(clientId: string): string {
 
 function checklistKey(clientId: string, operationType: OperationType): string {
   return `licensing_checklist_${clientId}_${operationType}`
+}
+
+function formFilesKey(clientId: string, itemId: number): string {
+  return `checklist_form_${clientId}_${itemId}`
 }
 
 function readOpType(clientId: string): OperationType | null {
@@ -216,6 +100,19 @@ function writeChecklist(
   localStorage.setItem(checklistKey(clientId, operationType), JSON.stringify(data))
 }
 
+function readFormFiles(clientId: string, itemId: number): FormFiles {
+  try {
+    const raw = localStorage.getItem(formFilesKey(clientId, itemId))
+    return raw ? (JSON.parse(raw) as FormFiles) : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeFormFiles(clientId: string, itemId: number, data: FormFiles): void {
+  localStorage.setItem(formFilesKey(clientId, itemId), JSON.stringify(data))
+}
+
 function defaultItemState(): ItemState {
   return { status: 'pending' }
 }
@@ -240,14 +137,9 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
-function itemApplies(item: LicensingItemDef, operationType: OperationType): boolean {
-  if (!item.operationTypes) return true
-  return item.operationTypes.includes(operationType)
-}
-
-function blockApplies(block: LicensingBlockDef, operationType: OperationType): boolean {
-  if (!block.operationTypes) return true
-  return block.operationTypes.includes(operationType)
+function blockApplies(block: (typeof LICENSING_BLOCKS)[number], operationType: OperationType): boolean {
+  if (block.operationTypes && !block.operationTypes.includes(operationType)) return false
+  return true
 }
 
 function isDueOverdue(dueDate: string | undefined): boolean {
@@ -259,7 +151,78 @@ function isDueOverdue(dueDate: string | undefined): boolean {
   return d < today
 }
 
-export function LicensingChecklist({ client, license, warehouses: _warehouses }: LicensingChecklistProps) {
+function FormUploadRow({
+  clientId,
+  itemId,
+}: {
+  clientId: string
+  itemId: number
+}) {
+  const templateRef = useRef<HTMLInputElement>(null)
+  const clientRef = useRef<HTMLInputElement>(null)
+  const [files, setFiles] = useState<FormFiles>(() => readFormFiles(clientId, itemId))
+
+  const save = (patch: Partial<FormFiles>) => {
+    const next = { ...files, ...patch }
+    setFiles(next)
+    writeFormFiles(clientId, itemId, next)
+  }
+
+  return (
+    <div className="pl-10 space-y-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={templateRef}
+          type="file"
+          accept=".pdf,.doc,.docx"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) save({ templateName: f.name })
+            e.target.value = ''
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => templateRef.current?.click()}
+          className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-700 hover:bg-slate-50"
+        >
+          <Upload className="h-3 w-3" />
+          Шаблон
+        </button>
+        {files.templateName ? (
+          <span className="text-slate-600 truncate max-w-[180px]">{files.templateName}</span>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={clientRef}
+          type="file"
+          accept=".pdf,.doc,.docx"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) save({ clientFileName: f.name })
+            e.target.value = ''
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => clientRef.current?.click()}
+          className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-1 text-brand-700 hover:bg-brand-100"
+        >
+          <Upload className="h-3 w-3" />
+          Файл для клиента
+        </button>
+        {files.clientFileName ? (
+          <span className="text-slate-600 truncate max-w-[180px]">{files.clientFileName}</span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+export function LicensingChecklist({ client, license, warehouses }: LicensingChecklistProps) {
   const [operationType, setOperationType] = useState<OperationType | null>(() =>
     readOpType(client.id),
   )
@@ -270,14 +233,20 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
 
   const activeItems = useMemo(() => {
     if (!operationType) return []
-    return ITEMS.filter((item) => itemApplies(item, operationType))
+    return getItemsForOperation(operationType)
+  }, [operationType])
+
+  const checkableItems = useMemo(() => {
+    if (!operationType) return []
+    return getCheckableItems(operationType)
   }, [operationType])
 
   const visibleBlocks = useMemo(() => {
     if (!operationType) return []
-    return BLOCKS.filter((b) => blockApplies(b, operationType)).map((block) => ({
+    return LICENSING_BLOCKS.filter((b) => blockApplies(b, operationType)).map((block) => ({
       block,
       items: activeItems.filter((i) => i.block === block.num),
+      deferred: isBlockDeferred(block, operationType),
     }))
   }, [operationType, activeItems])
 
@@ -285,7 +254,8 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
     (op: OperationType) => {
       const data = readChecklist(client.id, op)
       const nextItems: Record<string, ItemState> = {}
-      for (const item of ITEMS.filter((i) => itemApplies(i, op))) {
+      for (const item of LICENSING_ITEMS.filter((i) => itemApplies(i, op))) {
+        if (item.mode === 'info') continue
         nextItems[String(item.id)] = data.items[String(item.id)] ?? defaultItemState()
       }
       setItems(nextItems)
@@ -345,11 +315,13 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
   }
 
   const progress = useMemo(() => {
-    const applicable = activeItems.filter((i) => (items[String(i.id)]?.status ?? 'pending') !== 'na')
+    const applicable = checkableItems.filter(
+      (i) => (items[String(i.id)]?.status ?? 'pending') !== 'na',
+    )
     const total = applicable.length
     const done = applicable.filter((i) => items[String(i.id)]?.status === 'done').length
     return { done, total }
-  }, [activeItems, items])
+  }, [checkableItems, items])
 
   const exportPDF = () => {
     if (!operationType) return
@@ -362,21 +334,23 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
 
     const rows = activeItems
       .map((item) => {
-        const block = BLOCKS.find((b) => b.num === item.block)
+        const block = LICENSING_BLOCKS.find((b) => b.num === item.block)
         const state = items[String(item.id)] ?? defaultItemState()
         const due =
           state.dueDate && isValid(parseISO(state.dueDate))
             ? format(parseISO(state.dueDate), 'dd.MM.yyyy')
             : '—'
+        const status =
+          item.mode === 'info' ? 'Информация' : statusLabel(state.status)
         return `
     <tr>
       <td>${item.id}</td>
       <td>${escapeHtml(block ? `Блок ${block.num}` : '')}</td>
       <td>${escapeHtml(item.title)}</td>
-      <td>${escapeHtml(statusLabel(state.status))}</td>
+      <td>${escapeHtml(status)}</td>
       <td>${due}</td>
       <td>${escapeHtml(state.responsible?.trim() || '—')}</td>
-      <td>${escapeHtml(state.comment?.trim() || '—')}</td>
+      <td>${escapeHtml(state.comment?.trim() || item.note || '—')}</td>
     </tr>`
       })
       .join('')
@@ -405,6 +379,7 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
         Операция: ${escapeHtml(OPERATION_LABELS[operationType])}<br>
         Дата формирования: ${escapeHtml(printedAt)}
         ${license?.license_number ? `<br>Лицензия: ${escapeHtml(license.license_number)}` : ''}
+        ${warehouses.length ? `<br>Складов: ${warehouses.length}` : ''}
       </div>
       <table>
         <thead>
@@ -425,6 +400,138 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
       printWindow.close()
     }, 300)
   }
+
+  const renderCheckableItem = (item: LicensingItemDef) => {
+    const state = items[String(item.id)] ?? defaultItemState()
+    const showComment = commentOpen.has(item.id)
+    const showDate = dateOpen.has(item.id)
+    const overdue = isDueOverdue(state.dueDate)
+
+    return (
+      <li
+        key={item.id}
+        className={`mx-2 my-1 rounded-lg border px-3 py-3 space-y-2 ${checklistItemRowClass(state.status)}`}
+      >
+        <div className="flex flex-wrap items-start gap-2">
+          <button
+            type="button"
+            onClick={() => cycleStatus(item.id)}
+            className={`shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md border bg-white/80 hover:opacity-90 ${checklistItemRowClass(state.status)}`}
+            title="Статус: ожидание → готово → н/п"
+          >
+            {state.status === 'done' && <CheckCircle className="h-5 w-5 text-green-600" />}
+            {state.status === 'pending' && <XCircle className="h-5 w-5 text-red-600" />}
+            {state.status === 'na' && <Circle className="h-5 w-5 text-gray-400" />}
+          </button>
+          <div className="flex-1 min-w-0 pt-1">
+            <p className="text-sm">
+              <span className="opacity-60 mr-1.5">{item.id}.</span>
+              {item.title}
+            </p>
+            {item.note ? <p className="text-xs text-slate-500 mt-0.5">{item.note}</p> : null}
+            {item.mode === 'auto' ? (
+              <p className="text-xs text-brand-600 mt-0.5">Авто: данные из загруженных документов</p>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {state.dueDate && !showDate && (
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full ${
+                  overdue ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {format(parseISO(state.dueDate), 'dd.MM.yyyy')}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setDateOpen((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(item.id)) next.delete(item.id)
+                  else next.add(item.id)
+                  return next
+                })
+              }}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+              title="Срок"
+            >
+              <Calendar className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCommentOpen((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(item.id)) next.delete(item.id)
+                  else next.add(item.id)
+                  return next
+                })
+              }}
+              className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 ${
+                state.comment?.trim() ? 'text-brand-600' : 'text-slate-500'
+              }`}
+              title="Комментарий"
+            >
+              <MessageSquare className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {item.mode === 'form' ? <FormUploadRow clientId={client.id} itemId={item.id} /> : null}
+
+        <label className="block text-xs text-slate-500 pl-10">
+          Ответственный
+          <input
+            type="text"
+            value={state.responsible ?? ''}
+            onChange={(e) => updateItem(item.id, { responsible: e.target.value })}
+            placeholder="ФИО"
+            className="mt-0.5 w-full max-w-xs rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-800"
+          />
+        </label>
+
+        {showDate && (
+          <label className="block text-xs text-slate-500 pl-10">
+            Срок исполнения
+            <input
+              type="date"
+              value={state.dueDate ?? ''}
+              onChange={(e) => updateItem(item.id, { dueDate: e.target.value || undefined })}
+              className="mt-0.5 rounded-md border border-slate-300 px-2 py-1 text-sm"
+            />
+          </label>
+        )}
+
+        {showComment && (
+          <label className="block text-xs text-slate-500 pl-10">
+            Комментарий
+            <textarea
+              value={state.comment ?? ''}
+              onChange={(e) => updateItem(item.id, { comment: e.target.value })}
+              rows={2}
+              className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+            />
+          </label>
+        )}
+      </li>
+    )
+  }
+
+  const renderInfoItem = (item: LicensingItemDef) => (
+    <li
+      key={item.id}
+      className="mx-2 my-1 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-3"
+    >
+      <div className="flex gap-2">
+        <Info className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm text-amber-950">{item.title}</p>
+          {item.note ? <p className="text-xs text-amber-800 mt-1">{item.note}</p> : null}
+        </div>
+      </div>
+    </li>
+  )
 
   return (
     <div className="space-y-6 overflow-x-hidden">
@@ -498,23 +605,26 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
                 className="h-full rounded-full bg-brand-600 transition-all duration-300"
                 style={{
                   width:
-                    progress.total > 0
-                      ? `${(progress.done / progress.total) * 100}%`
-                      : '0%',
+                    progress.total > 0 ? `${(progress.done / progress.total) * 100}%` : '0%',
                 }}
               />
             </div>
+            <p className="text-xs text-slate-500">
+              Документы по складам и требования 289н — на вкладке «Документы и склады». ЕГАИС — на
+              каждом складе отдельно.
+            </p>
           </div>
 
           <div className="space-y-3">
-            {visibleBlocks.map(({ block, items: blockItems }) => {
-              if (blockItems.length === 0) return null
+            {visibleBlocks.map(({ block, items: blockItems, deferred }) => {
+              if (blockItems.length === 0 && !deferred) return null
               const blockKey = String(block.num)
-              const isCollapsed = collapsed[blockKey] ?? false
-              const blockDone = blockItems.filter(
+              const isCollapsed = collapsed[blockKey] ?? true
+              const checkableInBlock = blockItems.filter((i) => i.mode !== 'info')
+              const blockDone = checkableInBlock.filter(
                 (i) => items[String(i.id)]?.status === 'done',
               ).length
-              const blockTotal = blockItems.filter(
+              const blockTotal = checkableInBlock.filter(
                 (i) => (items[String(i.id)]?.status ?? 'pending') !== 'na',
               ).length
 
@@ -529,7 +639,10 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
                     className="w-full flex items-center justify-between gap-2 px-4 py-3 min-h-[44px] text-left bg-slate-50/80 hover:bg-slate-50"
                   >
                     <span className="font-semibold text-slate-900 text-sm">
-                      Блок {block.num} — {block.title} ({blockDone}/{blockTotal} готово)
+                      Блок {block.num} — {block.title}
+                      {!deferred && checkableInBlock.length > 0
+                        ? ` (${blockDone}/${blockTotal} готово)`
+                        : ''}
                     </span>
                     {isCollapsed ? (
                       <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
@@ -539,133 +652,21 @@ export function LicensingChecklist({ client, license, warehouses: _warehouses }:
                   </button>
 
                   {!isCollapsed && (
-                    <ul className="divide-y divide-slate-100">
-                      {blockItems.map((item) => {
-                        const state = items[String(item.id)] ?? defaultItemState()
-                        const showComment = commentOpen.has(item.id)
-                        const showDate = dateOpen.has(item.id)
-                        const overdue = isDueOverdue(state.dueDate)
-
-                        return (
-                          <li
-                            key={item.id}
-                            className={`mx-2 my-1 rounded-lg border px-3 py-3 space-y-2 ${checklistItemRowClass(state.status)}`}
-                          >
-                            <div className="flex flex-wrap items-start gap-2">
-                              <button
-                                type="button"
-                                onClick={() => cycleStatus(item.id)}
-                                className={`shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md border bg-white/80 hover:opacity-90 ${checklistItemRowClass(state.status)}`}
-                                title="Статус: ожидание → готово → н/п"
-                              >
-                                {state.status === 'done' && (
-                                  <CheckCircle className="h-5 w-5 text-green-600" />
-                                )}
-                                {state.status === 'pending' && (
-                                  <XCircle className="h-5 w-5 text-red-600" />
-                                )}
-                                {state.status === 'na' && (
-                                  <Circle className="h-5 w-5 text-gray-400" />
-                                )}
-                              </button>
-                              <p className="flex-1 min-w-0 text-sm pt-1">
-                                <span className="opacity-60 mr-1.5">{item.id}.</span>
-                                {item.title}
-                              </p>
-                              <div className="flex items-center gap-1 shrink-0">
-                                {state.dueDate && !showDate && (
-                                  <span
-                                    className={`text-xs px-2 py-0.5 rounded-full ${
-                                      overdue
-                                        ? 'bg-red-100 text-red-700'
-                                        : 'bg-slate-100 text-slate-600'
-                                    }`}
-                                  >
-                                    {format(parseISO(state.dueDate), 'dd.MM.yyyy')}
-                                  </span>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setDateOpen((prev) => {
-                                      const next = new Set(prev)
-                                      if (next.has(item.id)) next.delete(item.id)
-                                      else next.add(item.id)
-                                      return next
-                                    })
-                                  }}
-                                  className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
-                                  title="Срок"
-                                >
-                                  <Calendar className="h-4 w-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setCommentOpen((prev) => {
-                                      const next = new Set(prev)
-                                      if (next.has(item.id)) next.delete(item.id)
-                                      else next.add(item.id)
-                                      return next
-                                    })
-                                  }}
-                                  className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 ${
-                                    state.comment?.trim()
-                                      ? 'text-brand-600'
-                                      : 'text-slate-500'
-                                  }`}
-                                  title="Комментарий"
-                                >
-                                  <MessageSquare className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </div>
-
-                            <label className="block text-xs text-slate-500 pl-10">
-                              Ответственный
-                              <input
-                                type="text"
-                                value={state.responsible ?? ''}
-                                onChange={(e) =>
-                                  updateItem(item.id, { responsible: e.target.value })
-                                }
-                                placeholder="ФИО"
-                                className="mt-0.5 w-full max-w-xs rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-800"
-                              />
-                            </label>
-
-                            {showDate && (
-                              <label className="block text-xs text-slate-500 pl-10">
-                                Срок исполнения
-                                <input
-                                  type="date"
-                                  value={state.dueDate ?? ''}
-                                  onChange={(e) =>
-                                    updateItem(item.id, {
-                                      dueDate: e.target.value || undefined,
-                                    })
-                                  }
-                                  className="mt-0.5 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                                />
-                              </label>
-                            )}
-
-                            {showComment && (
-                              <label className="block text-xs text-slate-500 pl-10">
-                                Комментарий
-                                <textarea
-                                  value={state.comment ?? ''}
-                                  onChange={(e) =>
-                                    updateItem(item.id, { comment: e.target.value })
-                                  }
-                                  rows={2}
-                                  className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                                />
-                              </label>
-                            )}
-                          </li>
+                    <ul className="divide-y divide-slate-100 pb-2">
+                      {deferred ? (
+                        <li className="mx-2 my-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+                          <p className="font-medium text-slate-800">Этап отложен</p>
+                          <p className="mt-1">
+                            При получении новой лицензии действующая лицензия появится позже. После
+                            выдачи добавьте её на вкладке «Обзор» или «Документы и склады» — пункты
+                            блока активируются автоматически.
+                          </p>
+                        </li>
+                      ) : (
+                        blockItems.map((item) =>
+                          item.mode === 'info' ? renderInfoItem(item) : renderCheckableItem(item),
                         )
-                      })}
+                      )}
                     </ul>
                   )}
                 </section>

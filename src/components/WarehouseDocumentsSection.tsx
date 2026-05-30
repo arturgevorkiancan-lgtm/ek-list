@@ -76,9 +76,10 @@ import {
   type WarehouseReadingStats,
 } from '../lib/warehouseReadingStats'
 import {
-  COMPLIANCE_TOTAL,
+  getComplianceTotal,
   countComplianceDone,
   getWarehouseComplianceBadge,
+  warehouseHasStock,
   WAREHOUSE_COMPLIANCE_CHANGED,
   type WarehouseComplianceBadge,
 } from '../lib/warehouseCompliance'
@@ -1207,11 +1208,13 @@ export function WarehouseDocumentsSection({
               w.area_sqm != null ? `${w.area_sqm} кв.м` : '—'
             const expanded = isWarehouseExpanded(w.id)
             const productTypes = parseProductTypes(w.product_types)
+            const hasStock = warehouseHasStock(w.product_types)
             const safeRange = computeSafeRange(productTypes)
             const statusBadge = warehouseStatusBadge(readingStats[w.id])
-            const complianceBadge = getWarehouseComplianceBadge(w.id)
+            const complianceBadge = getWarehouseComplianceBadge(w.id, hasStock)
             const fileCount = countWarehouseFiles(w.id, clientDocs)
-            const complianceDone = countComplianceDone(w.id)
+            const complianceDone = countComplianceDone(w.id, hasStock)
+            const complianceTotal = getComplianceTotal(hasStock)
             const suspiciousName = hasSuspiciousWarehouseName(w.name)
 
             return (
@@ -1543,7 +1546,7 @@ export function WarehouseDocumentsSection({
                     <WarehouseNestedSection
                       icon={<CheckSquare className="h-4 w-4" />}
                       title="Условия хранения"
-                      subtitle={`${complianceDone}/${COMPLIANCE_TOTAL} выполнено`}
+                      subtitle={`${complianceDone}/${complianceTotal} выполнено`}
                       expanded={isSectionExpanded(w.id, 'compliance')}
                       onToggle={() => toggleSectionExpanded(w.id, 'compliance')}
                     >
@@ -1551,6 +1554,7 @@ export function WarehouseDocumentsSection({
                         warehouseId={w.id}
                         warehouseName={w.name}
                         productTypes={productTypes}
+                        hasStock={hasStock}
                       />
                     </WarehouseNestedSection>
 

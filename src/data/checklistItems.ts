@@ -1,146 +1,57 @@
 import type { ChecklistTemplateItem, OperationType, ProductTypeFlag } from '../types'
+import {
+  getItemsForOperation,
+  LICENSING_ITEMS,
+  OPERATION_LABELS,
+} from './licensingChecklistTemplate'
 
-export const CHECKLIST_ITEMS: ChecklistTemplateItem[] = [
-  { block: 1, id: 1, title: 'Учредительные документы (Устав)' },
-  { block: 1, id: 2, title: 'Свидетельство о регистрации (ОГРН) / Лист записи ЕГРЮЛ' },
-  { block: 1, id: 3, title: 'Свидетельство о постановке на учёт (ИНН)' },
-  { block: 1, id: 4, title: 'Лист записи ГРН к последней версии Устава', note: 'при наличии' },
-  { block: 1, id: 5, title: 'Решение о создании юридического лица' },
-  { block: 1, id: 6, title: 'Решение об увеличении уставного капитала', note: 'при наличии' },
-  { block: 1, id: 7, title: 'Лист записи ГРН о внесении изменений в УК', note: 'при наличии' },
-  { block: 1, id: 8, title: 'Решение о внесении изменений в Устав', note: 'при наличии' },
-  { block: 1, id: 9, title: 'Решение учредителей о назначении генерального директора' },
-  { block: 1, id: 10, title: 'Приказ о назначении генерального директора' },
-  { block: 1, id: 11, title: 'Копия паспорта генерального директора (стр. 1 и прописка)' },
-  { block: 1, id: 12, title: 'Приказ о назначении главного бухгалтера', note: 'если бухгалтер не ГД' },
-  { block: 2, id: 13, title: 'Платёжные документы об оплате УК (поручения, ордера)' },
-  { block: 2, id: 14, title: 'Справка банка о зачислении средств в оплату УК', note: 'оригинал / заверенная копия' },
-  { block: 2, id: 15, title: 'Баланс за последний отчётный период', note: 'если фирма открыта в предыдущем году или ранее' },
-  { block: 2, id: 16, title: 'Расчёт оценки стоимости чистых активов' },
-  { block: 3, id: 17, title: 'Выписка из ЕГРЮЛ', note: 'не старше 1 месяца' },
-  { block: 3, id: 18, title: 'Выписка из ЕГРН (Росреестр)', note: 'источник адреса' },
-  { block: 4, id: 19, title: 'Уведомление о постановке на учёт обособленного подразделения' },
-  { block: 4, id: 20, title: 'Договор аренды складского помещения (со всеми доп. соглашениями)' },
-  { block: 4, id: 21, title: 'Технический паспорт или технический план с поэтажным планом и экспликацией (БТИ)' },
-  { block: 5, id: 22, title: 'Паспорта и свидетельства о поверке на гигрометры (ВИТ-1, livit, RGB и аналоги)' },
-  { block: 5, id: 23, title: 'Температурный режим: +5°C — +25°C', note: 'подтверждается при осмотре' },
-  { block: 5, id: 24, title: 'Влажность не выше 85%', note: 'подтверждается при осмотре' },
-  { block: 5, id: 25, title: 'Изоляция склада от служебных/подсобных помещений' },
-  { block: 5, id: 26, title: 'Стеллажи и/или поддоны (расстояние ≥0,5 м от стен и отопления)' },
-  { block: 5, id: 27, title: 'Осветительные приборы' },
-  { block: 5, id: 28, title: 'Расстановка товара — план или письмо о зонировании' },
-  { block: 5, id: 29, title: 'Письмо об отсутствии совместного хранения ИЛИ план зонирования', note: 'если есть иная продукция' },
-  { block: 6, id: 30, title: 'Сертификат ключа проверки электронной подписи ЕГАИС УТМ' },
-  { block: 6, id: 31, title: 'Сканер 2D-штрих-кода', note: 'фактическое наличие на месте' },
-  {
-    block: 7,
-    id: 32,
-    title: 'Действующая лицензия (либо выписка из реестра лицензий)',
-    types: ['ПЕРЕОФОРМЛЕНИЕ', 'ПРОДЛЕНИЕ', 'ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ'],
-  },
-  {
-    block: 7,
-    id: 33,
-    title: 'Номер лицензии',
-    types: ['ПЕРЕОФОРМЛЕНИЕ', 'ПРОДЛЕНИЕ', 'ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ'],
-  },
-  {
-    block: 7,
-    id: 34,
-    title: 'Дата выдачи лицензии',
-    types: ['ПЕРЕОФОРМЛЕНИЕ', 'ПРОДЛЕНИЕ', 'ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ'],
-  },
-  {
-    block: 7,
-    id: 35,
-    title: 'Дата окончания лицензии',
-    types: ['ПЕРЕОФОРМЛЕНИЕ', 'ПРОДЛЕНИЕ', 'ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ'],
-  },
-  {
-    block: 7,
-    id: 36,
-    title: 'Адреса обособленных подразделений по лицензии',
-    types: ['ПЕРЕОФОРМЛЕНИЕ', 'ПРОДЛЕНИЕ', 'ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ'],
-  },
-  {
-    block: 7,
-    id: 37,
-    title: 'КПП по каждому адресу',
-    types: ['ПЕРЕОФОРМЛЕНИЕ', 'ПРОДЛЕНИЕ', 'ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ'],
-  },
-  {
-    block: 8,
-    id: 38,
-    title: 'Доверенность на представителя',
-    note: 'если не ГД; с правом на проверки РАТК',
-    types: ['ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ'],
-  },
-  {
-    block: 8,
-    id: 39,
-    title: 'Заявление в Росалкогольтабакконтроль',
-    types: ['ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ'],
-  },
-  {
-    block: 8,
-    id: 40,
-    title: 'Платёжное поручение об оплате госпошлины',
-    types: ['ПРОВЕРКА_ВЫЕЗДНАЯ', 'ПРОВЕРКА_ВНЕПЛАНОВАЯ'],
-  },
-  {
-    block: 9,
-    id: 41,
-    title: 'Свидетельство о включении в реестр владельцев таможенных складов',
-    conditional: 'customs_warehouse',
-  },
-  {
-    block: 9,
-    id: 42,
-    title: 'Ведомость остатков алкогольной продукции на дату проверки',
-    note: 'при наличии продукции',
-    conditional: 'has_stock',
-  },
-  {
-    block: 9,
-    id: 43,
-    title: 'Ведомость остатков на начало операционного дня',
-    note: 'при наличии продукции',
-    conditional: 'has_stock',
-  },
-]
+export { OPERATION_LABELS }
+
+/** Legacy Supabase checklist template — derived from licensing checklist */
+export const CHECKLIST_ITEMS: ChecklistTemplateItem[] = LICENSING_ITEMS.filter(
+  (item) => item.mode !== 'info',
+).map((item) => ({
+  block: item.block,
+  id: item.id,
+  title: item.title,
+  note: item.note,
+  types: item.operationTypes,
+}))
 
 export const BLOCK_TITLES: Record<number, string> = {
   1: 'Корпоративные документы',
   2: 'Уставный капитал',
-  3: 'Реестры',
-  4: 'Обособленное подразделение и склад',
-  5: 'Технические требования',
-  6: 'ЕГАИС',
+  3: 'Реестры и выписки',
+  5: 'Зонирование и размещение',
+  6: 'ЕГАИС (организация)',
   7: 'Лицензия',
-  8: 'Дополнительная проверка',
-  9: 'Хранение (спец.)',
-}
-
-export const OPERATION_LABELS: Record<OperationType, string> = {
-  ПОЛУЧЕНИЕ: 'Получение лицензии',
-  ПЕРЕОФОРМЛЕНИЕ: 'Переоформление',
-  ПРОДЛЕНИЕ: 'Продление',
-  ПРОВЕРКА_ВЫЕЗДНАЯ: 'Выездная проверка РАТК',
-  ПРОВЕРКА_ВНЕПЛАНОВАЯ: 'Внеплановая проверка',
+  8: 'Подготовка к проверке',
+  9: 'Уведомления для заказчика',
 }
 
 export function getItemsForChecklist(
   operationType: OperationType,
   productTypes: ProductTypeFlag[] = [],
 ): ChecklistTemplateItem[] {
-  return CHECKLIST_ITEMS.filter((item) => {
-    if (item.types && !item.types.includes(operationType)) return false
-    if (item.conditional === 'customs_warehouse' && !productTypes.includes('customs_warehouse')) {
-      return false
-    }
-    if (item.conditional === 'has_stock' && !productTypes.includes('has_stock')) {
-      return false
-    }
-    return true
-  })
+  return getItemsForOperation(operationType)
+    .filter((item) => item.mode !== 'info')
+    .map((item) => {
+      const mapped: ChecklistTemplateItem = {
+        block: item.block,
+        id: item.id,
+        title: item.title,
+        note: item.note,
+        types: item.operationTypes,
+      }
+      return mapped
+    })
+    .filter((item) => {
+      if (item.conditional === 'customs_warehouse' && !productTypes.includes('customs_warehouse')) {
+        return false
+      }
+      if (item.conditional === 'has_stock' && !productTypes.includes('has_stock')) {
+        return false
+      }
+      return true
+    })
 }

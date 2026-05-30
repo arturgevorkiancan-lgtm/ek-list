@@ -19,27 +19,19 @@ import {
 import { ru } from 'date-fns/locale'
 import { DeadlinePanel } from './DeadlinePanel'
 import { LicenseTypeBadge } from './LicenseTypeBadge'
+import {
+  countComplianceDone,
+  getComplianceTotal,
+  warehouseHasStock,
+} from '../lib/warehouseCompliance'
+import { COMPLIANCE_REQUIREMENTS } from '../data/warehouseComplianceTemplate'
 import type { Checklist, Client, Document, License, Warehouse } from '../types'
 
-const COMPLIANCE_TOTAL = 14
 const PUSH_PROMPT_DISMISSED_KEY = 'push_prompt_dismissed'
 
-const COMPLIANCE_ITEM_TEXT: Record<string, string> = {
-  thermometer: 'Термометр установлен и поверен',
-  hygrometer: 'Гигрометр установлен и поверен',
-  journal_kept: 'Журнал учёта условий хранения ведётся',
-  pallets: 'Нижний ярус продукции на поддонах',
-  wall_distance: 'Расстояние от стен до продукции не менее 0,5 м',
-  aisle_width: 'Ширина проходов между стеллажами не менее 0,5 м',
-  no_sunlight: 'Прямой солнечный свет в зону хранения не попадает',
-  ventilation_ok: 'Вентиляция функционирует',
-  fire_alarm: 'Пожарная сигнализация установлена',
-  security_alarm: 'Охранная сигнализация установлена',
-  temp_in_range: 'Текущая температура соответствует нормам',
-  humidity_in_range: 'Текущая влажность соответствует нормам',
-  no_foreign_smell: 'Посторонние запахи отсутствуют',
-  egais_connected: 'ЕГАИС подключён и работает',
-}
+const COMPLIANCE_ITEM_TEXT: Record<string, string> = Object.fromEntries(
+  COMPLIANCE_REQUIREMENTS.map((i) => [i.id, i.text.split(' (')[0] ?? i.text]),
+)
 
 export interface ClientDashboardProps {
   client: Client
@@ -172,9 +164,6 @@ function readCompliance(warehouseId: string): ComplianceState {
   }
 }
 
-function countComplianceDone(warehouseId: string): number {
-  return Object.values(readCompliance(warehouseId)).filter((x) => x.status === 'done').length
-}
 
 function getLatestReading(warehouseId: string): StorageReadingRow | null {
   const readings = readReadings(warehouseId)
@@ -358,20 +347,39 @@ export function ClientDashboard({
   )
 
   const complianceDone = useMemo(
-    () => warehouses.reduce((sum, w) => sum + countComplianceDone(w.id), 0),
+    () =>
+      warehouses.reduce((sum, w) => {
+        const hasStock = warehouseHasStock(
+          (w as Warehouse & { product_types?: string[] }).product_types,
+        )
+        return sum + countComplianceDone(w.id, hasStock)
+      }, 0),
     [warehouses],
   )
 
-  const complianceTotal = COMPLIANCE_TOTAL * warehouseCount
+  const complianceTotal = useMemo(
+    () =>
+      warehouses.reduce((sum, w) => {
+        const hasStock = warehouseHasStock(
+          (w as Warehouse & { product_types?: string[] }).product_types,
+        )
+        return sum + getComplianceTotal(hasStock)
+      }, 0),
+    [warehouses],
+  )
   const expiryDays = nearestExpiryDays(licenses)
 
   const warehouseCards = useMemo(
     () =>
       warehouses.map((w) => {
         const latest = getLatestReading(w.id)
-        const done = countComplianceDone(w.id)
+        const hasStock = warehouseHasStock(
+          (w as Warehouse & { product_types?: string[] }).product_types,
+        )
+        const done = countComplianceDone(w.id, hasStock)
+        const total = getComplianceTotal(hasStock)
         const stale = isReadingOlderThan24h(w.id)
-        return { warehouse: w, latest, done, stale }
+        return { warehouse: w, latest, done, total, stale }
       }),
     [warehouses],
   )
@@ -519,7 +527,7 @@ export function ClientDashboard({
           </div>
         ) : (
           <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory md:grid md:grid-cols-2 md:overflow-visible md:pb-0">
-            {warehouseCards.map(({ warehouse: w, latest, done, stale }) => (
+            {warehouseCards.map(({ warehouse: w, latest, done, total, stale }) => (
               <button
                 key={w.id}
                 type="button"
@@ -549,13 +557,13 @@ export function ClientDashboard({
                   <div className="flex justify-between text-xs text-slate-500 mb-1">
                     <span>Чеклист условий</span>
                     <span>
-                      {done}/{COMPLIANCE_TOTAL}
+                      {done}/{total}
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-brand-500 transition-all"
-                      style={{ width: `${(done / COMPLIANCE_TOTAL) * 100}%` }}
+                      style={{ width: `${total ? (done / total) * 100 : 0}%` }}
                     />
                   </div>
                 </div>

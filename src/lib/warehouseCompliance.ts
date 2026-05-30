@@ -1,21 +1,9 @@
-export const COMPLIANCE_TOTAL = 14
-
-export const COMPLIANCE_ITEM_IDS = [
-  'thermometer',
-  'hygrometer',
-  'journal_kept',
-  'pallets',
-  'wall_distance',
-  'aisle_width',
-  'no_sunlight',
-  'ventilation_ok',
-  'fire_alarm',
-  'security_alarm',
-  'temp_in_range',
-  'humidity_in_range',
-  'no_foreign_smell',
-  'egais_connected',
-] as const
+import {
+  COMPLIANCE_REQUIREMENTS,
+  getApplicableComplianceItems,
+  getComplianceTotal,
+  warehouseHasStock,
+} from '../data/warehouseComplianceTemplate'
 
 export type ComplianceItemStatus = 'pending' | 'done' | 'na'
 
@@ -27,6 +15,11 @@ export type ComplianceItemState = {
 export type ComplianceState = Record<string, ComplianceItemState>
 
 export const WAREHOUSE_COMPLIANCE_CHANGED = 'warehouse-compliance-changed'
+
+export const COMPLIANCE_ITEM_IDS = COMPLIANCE_REQUIREMENTS.map((i) => i.id)
+
+/** Базовое число пунктов 289н + ЕГАИС без остатков продукции */
+export const COMPLIANCE_TOTAL_BASE = getComplianceTotal(false)
 
 export function complianceStorageKey(warehouseId: string): string {
   return `compliance_${warehouseId}`
@@ -54,16 +47,26 @@ export type WarehouseComplianceBadge = {
   done: number
 }
 
-export function countComplianceDone(warehouseId: string): number {
+export function countComplianceDone(
+  warehouseId: string,
+  hasStock = false,
+): number {
   const state = readComplianceState(warehouseId)
-  return Object.values(state).filter((x) => x.status === 'done').length
+  const ids = getApplicableComplianceItems(hasStock).map((i) => i.id)
+  return ids.filter((id) => state[id]?.status === 'done').length
 }
 
-export function getWarehouseComplianceBadge(warehouseId: string): WarehouseComplianceBadge {
+export function getWarehouseComplianceBadge(
+  warehouseId: string,
+  hasStock = false,
+): WarehouseComplianceBadge {
   const grayBadge = 'bg-slate-100 border border-slate-200 text-slate-600'
   const redBadge = 'bg-red-50 border border-red-200 text-red-800'
   const greenBadge = 'bg-green-50 border border-green-200 text-green-800'
   const amberBadge = 'bg-amber-50 border border-amber-200 text-amber-800'
+
+  const total = getComplianceTotal(hasStock)
+  const applicableIds = getApplicableComplianceItems(hasStock).map((i) => i.id)
 
   try {
     const state = readComplianceState(warehouseId)
@@ -72,15 +75,13 @@ export function getWarehouseComplianceBadge(warehouseId: string): WarehouseCompl
     let done = 0
     let explicitPending = 0
 
-    for (const id of COMPLIANCE_ITEM_IDS) {
+    for (const id of applicableIds) {
       const status = state[id]?.status ?? 'pending'
       if (status === 'na') continue
       applicable++
       if (status === 'done') done++
       if (status === 'pending' && id in state) explicitPending++
     }
-
-    const total = COMPLIANCE_TOTAL
 
     if (applicable === 0) {
       return {
@@ -127,9 +128,11 @@ export function getWarehouseComplianceBadge(warehouseId: string): WarehouseCompl
   } catch {
     return {
       text: 'Требует проверки',
-      className: 'bg-amber-50 border border-amber-200 text-amber-800',
-      tooltip: `Частично выполнено (0/${COMPLIANCE_TOTAL})`,
+      className: amberBadge,
+      tooltip: `Частично выполнено (0/${total})`,
       done: 0,
     }
   }
 }
+
+export { warehouseHasStock, getComplianceTotal }

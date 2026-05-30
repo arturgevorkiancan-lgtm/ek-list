@@ -4,83 +4,14 @@ import { CheckCircle, ChevronDown, ChevronUp, Circle, XCircle } from 'lucide-rea
 import { checklistItemRowClass } from '../lib/checklistStatusStyles'
 import { notifyComplianceChanged } from '../lib/warehouseCompliance'
 import { fetchStorageReadings } from '../lib/api'
+import {
+  getApplicableComplianceItems,
+  type ComplianceRequirementDef,
+} from '../data/warehouseComplianceTemplate'
 import { getCombinedStorageRange, getValueRangeStatus } from './StorageJournal'
 import type { ProductType } from './StorageStandardsCard'
 
-const COMPLIANCE_ITEMS = [
-  {
-    id: 'thermometer',
-    text: 'Термометр установлен и поверен (свидетельство о поверке актуально)',
-    category: '289н',
-  },
-  {
-    id: 'hygrometer',
-    text: 'Гигрометр установлен и поверен (свидетельство о поверке актуально)',
-    category: '289н',
-  },
-  {
-    id: 'journal_kept',
-    text: 'Журнал учёта условий хранения ведётся (записи не реже 1 раза в сутки)',
-    category: '289н',
-  },
-  {
-    id: 'pallets',
-    text: 'Нижний ярус продукции на поддонах (высота ≥ 15 см от пола)',
-    category: '289н',
-  },
-  {
-    id: 'wall_distance',
-    text: 'Расстояние от стен до продукции не менее 0,5 м',
-    category: '289н',
-  },
-  {
-    id: 'aisle_width',
-    text: 'Ширина проходов между стеллажами не менее 0,5 м',
-    category: '289н',
-  },
-  {
-    id: 'no_sunlight',
-    text: 'Прямой солнечный свет в зону хранения не попадает',
-    category: 'ГОСТ',
-  },
-  {
-    id: 'ventilation_ok',
-    text: 'Вентиляция функционирует (приточно-вытяжная)',
-    category: '289н',
-  },
-  {
-    id: 'fire_alarm',
-    text: 'Пожарная сигнализация установлена и работоспособна',
-    category: 'РАТК',
-  },
-  {
-    id: 'security_alarm',
-    text: 'Охранная сигнализация установлена и работоспособна',
-    category: 'РАТК',
-  },
-  {
-    id: 'temp_in_range',
-    text: 'Текущая температура соответствует нормам хранения продукции',
-    category: 'ГОСТ',
-  },
-  {
-    id: 'humidity_in_range',
-    text: 'Текущая влажность соответствует нормам хранения продукции',
-    category: 'ГОСТ',
-  },
-  {
-    id: 'no_foreign_smell',
-    text: 'Посторонние запахи в помещении отсутствуют',
-    category: 'ГОСТ',
-  },
-  {
-    id: 'egais_connected',
-    text: 'ЕГАИС подключён и работает на данном складе',
-    category: 'ЕГАИС',
-  },
-] as const
-
-type ComplianceItemId = (typeof COMPLIANCE_ITEMS)[number]['id']
+type ComplianceItemId = string
 type ComplianceStatus = 'pending' | 'done' | 'na'
 
 interface ComplianceItemState {
@@ -93,7 +24,6 @@ type ComplianceState = Record<string, ComplianceItemState>
 const CATEGORY_BADGE: Record<string, string> = {
   '289н': 'bg-blue-100 text-blue-800',
   ГОСТ: 'bg-purple-100 text-purple-800',
-  РАТК: 'bg-orange-100 text-orange-800',
   ЕГАИС: 'bg-green-100 text-green-800',
 }
 
@@ -133,16 +63,23 @@ interface StorageComplianceChecklistProps {
   warehouseId: string
   warehouseName: string
   productTypes: ProductType[]
+  hasStock: boolean
 }
 
 export function StorageComplianceChecklist({
   warehouseId,
   warehouseName,
   productTypes,
+  hasStock,
 }: StorageComplianceChecklistProps) {
   const [open, setOpen] = useState(true)
   const [state, setState] = useState<ComplianceState>(() => readComplianceState(warehouseId))
   const [commentOpen, setCommentOpen] = useState<Set<string>>(() => new Set())
+
+  const complianceItems = useMemo(
+    () => getApplicableComplianceItems(hasStock),
+    [hasStock],
+  )
 
   const range = useMemo(() => getCombinedStorageRange(productTypes), [productTypes])
 
@@ -167,7 +104,7 @@ export function StorageComplianceChecklist({
   }, [warehouseId])
 
   useEffect(() => {
-    if (!latestReading || !range) return
+    if (!hasStock || !latestReading || !range) return
 
     const tempOk =
       getValueRangeStatus(latestReading.temperature, range.tempMin, range.tempMax, 2) === 'ok'
@@ -196,13 +133,13 @@ export function StorageComplianceChecklist({
       }
       return changed ? next : prev
     })
-  }, [latestReading, range, warehouseId])
+  }, [hasStock, latestReading, range, warehouseId])
 
   const progress = useMemo(() => {
-    const applicable = COMPLIANCE_ITEMS.filter((item) => state[item.id]?.status !== 'na')
+    const applicable = complianceItems.filter((item) => state[item.id]?.status !== 'na')
     const done = applicable.filter((item) => state[item.id]?.status === 'done').length
     return { done, total: applicable.length }
-  }, [state])
+  }, [complianceItems, state])
 
   const setStatus = (id: ComplianceItemId, status: ComplianceStatus) => {
     persist({
@@ -231,11 +168,12 @@ export function StorageComplianceChecklist({
     const printWindow = window.open('', '_blank')
     if (!printWindow) return
 
-    const rows = COMPLIANCE_ITEMS.map((item, index) => {
-      const itemState = state[item.id]
-      const currentStatus = itemState?.status ?? 'pending'
-      const comment = itemState?.comment?.trim() || '—'
-      return `
+    const rows = complianceItems
+      .map((item, index) => {
+        const itemState = state[item.id]
+        const currentStatus = itemState?.status ?? 'pending'
+        const comment = itemState?.comment?.trim() || '—'
+        return `
     <tr>
       <td>${index + 1}</td>
       <td>${escapeHtml(item.text)}</td>
@@ -244,7 +182,8 @@ export function StorageComplianceChecklist({
       <td>${escapeHtml(comment)}</td>
     </tr>
   `
-    }).join('')
+      })
+      .join('')
 
     const now = new Date()
     const printedAt = `${now.toLocaleDateString('ru-RU')} ${now.toLocaleTimeString('ru-RU')}`
@@ -268,7 +207,7 @@ export function StorageComplianceChecklist({
     </head>
     <body>
       <h2>Чеклист условий хранения — ${escapeHtml(warehouseName)}</h2>
-      <div class="meta">Прогресс: ${progress.done} из ${progress.total} выполнено</div>
+      <div class="meta">Прогресс: ${progress.done} из ${progress.total} выполнено · Приказ 289н (полный перечень)</div>
       <table>
         <thead>
           <tr>
@@ -318,6 +257,71 @@ export function StorageComplianceChecklist({
     </button>
   )
 
+  const renderItem = (item: ComplianceRequirementDef) => {
+    const itemState = state[item.id]
+    const currentStatus = itemState?.status ?? 'pending'
+    const showComment = commentOpen.has(item.id)
+
+    return (
+      <li
+        key={item.id}
+        className={`rounded-lg border p-3 space-y-2 ${checklistItemRowClass(currentStatus)}`}
+      >
+        <div className="flex flex-wrap items-start gap-2">
+          <span
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+              CATEGORY_BADGE[item.category] ?? 'bg-slate-100 text-slate-700'
+            }`}
+          >
+            {item.category}
+          </span>
+          <p className="text-sm text-slate-800 flex-1 min-w-0">{item.text}</p>
+          <button
+            type="button"
+            onClick={() => toggleComment(item.id)}
+            className={`shrink-0 rounded p-1 text-sm ${
+              itemState?.comment
+                ? 'text-brand-600 bg-brand-50'
+                : 'text-slate-400 hover:text-slate-600'
+            }`}
+            title="Комментарий"
+          >
+            💬
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-1">
+          {statusButton(item.id, 'pending', 'Не выполнено', XCircle, 'text-red-600')}
+          {statusButton(item.id, 'done', 'Выполнено', CheckCircle, 'text-green-600')}
+          {statusButton(item.id, 'na', 'Н/П', Circle, 'text-gray-400')}
+        </div>
+
+        {showComment && (
+          <input
+            type="text"
+            className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            placeholder="Комментарий…"
+            value={itemState?.comment ?? ''}
+            onChange={(e) => setComment(item.id, e.target.value)}
+          />
+        )}
+
+        {hasStock &&
+          (item.id === 'temp_in_range' || item.id === 'humidity_in_range') &&
+          latestReading &&
+          range &&
+          currentStatus === 'done' && (
+            <p className="text-xs text-green-700">
+              По последней записи журнала:{' '}
+              {item.id === 'temp_in_range'
+                ? `${latestReading.temperature}°C`
+                : `${latestReading.humidity}%`}
+            </p>
+          )}
+      </li>
+    )
+  }
+
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/80 overflow-hidden">
       <div className="flex w-full items-center gap-2 px-4 py-3">
@@ -327,7 +331,7 @@ export function StorageComplianceChecklist({
           className="flex flex-1 items-center justify-between gap-2 text-left text-sm font-medium text-slate-800 hover:bg-slate-100/80 -mx-2 px-2 py-0 rounded"
         >
           <span className="flex items-center gap-2 min-w-0">
-            <span>✅ Чеклист условий хранения</span>
+            <span>✅ Требования 289н и условия хранения</span>
             <span className="rounded-full bg-brand-100 text-brand-800 text-xs font-medium px-2 py-0.5 shrink-0">
               {progress.done} / {progress.total}
             </span>
@@ -349,6 +353,12 @@ export function StorageComplianceChecklist({
 
       {open && (
         <div className="border-t border-slate-200 px-4 py-4 space-y-3 bg-white">
+          {!hasStock && (
+            <p className="text-xs text-slate-500 rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
+              Пункты ГОСТ по продукции скрыты — на складе нет остатков. Отметьте «есть остатки» в
+              блоке ГОСТ, когда продукция появится.
+            </p>
+          )}
           <div>
             <div className="flex justify-between text-xs text-slate-600 mb-1">
               <span>Прогресс</span>
@@ -366,78 +376,7 @@ export function StorageComplianceChecklist({
             </div>
           </div>
 
-          <ul className="space-y-3">
-            {COMPLIANCE_ITEMS.map((item) => {
-              const itemState = state[item.id]
-              const currentStatus = itemState?.status ?? 'pending'
-              const showComment = commentOpen.has(item.id)
-
-              return (
-                <li
-                  key={item.id}
-                  className={`rounded-lg border p-3 space-y-2 ${checklistItemRowClass(currentStatus)}`}
-                >
-                  <div className="flex flex-wrap items-start gap-2">
-                    {item.category === 'РАТК' ? (
-                      <span className="shrink-0 rounded px-1.5 py-0.5 font-medium bg-orange-100 text-orange-800">
-                        <span className="block text-[10px] leading-none opacity-70">РАТК</span>
-                        <span className="block text-xs leading-tight">Росалкогольтабакконтроль</span>
-                      </span>
-                    ) : (
-                      <span
-                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                          CATEGORY_BADGE[item.category] ?? 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {item.category}
-                      </span>
-                    )}
-                    <p className="text-sm text-slate-800 flex-1 min-w-0">{item.text}</p>
-                    <button
-                      type="button"
-                      onClick={() => toggleComment(item.id)}
-                      className={`shrink-0 rounded p-1 text-sm ${
-                        itemState?.comment
-                          ? 'text-brand-600 bg-brand-50'
-                          : 'text-slate-400 hover:text-slate-600'
-                      }`}
-                      title="Комментарий"
-                    >
-                      💬
-                    </button>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1">
-                    {statusButton(item.id, 'pending', 'Не выполнено', XCircle, 'text-red-600')}
-                    {statusButton(item.id, 'done', 'Выполнено', CheckCircle, 'text-green-600')}
-                    {statusButton(item.id, 'na', 'Н/П', Circle, 'text-gray-400')}
-                  </div>
-
-                  {showComment && (
-                    <input
-                      type="text"
-                      className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-                      placeholder="Комментарий…"
-                      value={itemState?.comment ?? ''}
-                      onChange={(e) => setComment(item.id, e.target.value)}
-                    />
-                  )}
-
-                  {(item.id === 'temp_in_range' || item.id === 'humidity_in_range') &&
-                    latestReading &&
-                    range &&
-                    currentStatus === 'done' && (
-                      <p className="text-xs text-green-700">
-                        По последней записи журнала:{' '}
-                        {item.id === 'temp_in_range'
-                          ? `${latestReading.temperature}°C`
-                          : `${latestReading.humidity}%`}
-                      </p>
-                    )}
-                </li>
-              )
-            })}
-          </ul>
+          <ul className="space-y-3">{complianceItems.map(renderItem)}</ul>
         </div>
       )}
     </div>
